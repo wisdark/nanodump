@@ -8,6 +8,10 @@
 #include "syscalls.c"
 #include "token_priv.c"
 #include "malseclogon.c"
+#include "werfault.c"
+#include "spoof_callstack.c"
+#include "shtinkering.c"
+#include "impersonate.c"
 #endif
 
 VOID writeat(
@@ -26,7 +30,7 @@ VOID writeat(
 BOOL append(
     IN Pdump_context dc,
     IN const PVOID data,
-    IN unsigned size)
+    IN ULONG32 size)
 {
     ULONG32 new_rva = dc->rva + size;
     if (new_rva < dc->rva)
@@ -51,7 +55,7 @@ BOOL write_header(
     IN Pdump_context dc)
 {
     DPRINT("Writing header");
-    MiniDumpHeader header;
+    MiniDumpHeader header = { 0 };
     DPRINT("Signature: 0x%x", dc->Signature);
     header.Signature = dc->Signature;
     DPRINT("Version: %hu", dc->Version);
@@ -65,7 +69,7 @@ BOOL write_header(
     header.TimeDateStamp = 0;
     header.Flags = MiniDumpNormal;
 
-    char header_bytes[SIZE_OF_HEADER];
+    char header_bytes[SIZE_OF_HEADER] = { 0 };
 
     DWORD offset = 0;
     memcpy(header_bytes + offset, &header.Signature, 4); offset += 4;
@@ -91,7 +95,7 @@ BOOL write_directory(
     IN Pdump_context dc,
     IN MiniDumpDirectory directory)
 {
-    BYTE directory_bytes[SIZE_OF_DIRECTORY];
+    BYTE directory_bytes[SIZE_OF_DIRECTORY] = { 0 };
     DWORD offset = 0;
     memcpy(directory_bytes + offset, &directory.StreamType, 4); offset += 4;
     memcpy(directory_bytes + offset, &directory.DataSize, 4); offset += 4;
@@ -106,7 +110,7 @@ BOOL write_directories(
     IN Pdump_context dc)
 {
     DPRINT("Writing directory: SystemInfoStream");
-    MiniDumpDirectory system_info_directory;
+    MiniDumpDirectory system_info_directory = { 0 };
     system_info_directory.StreamType = SystemInfoStream;
     system_info_directory.DataSize = 0; // this is calculated and written later
     system_info_directory.Rva = 0; // this is calculated and written later
@@ -117,7 +121,7 @@ BOOL write_directories(
     }
 
     DPRINT("Writing directory: ModuleListStream");
-    MiniDumpDirectory module_list_directory;
+    MiniDumpDirectory module_list_directory = { 0 };
     module_list_directory.StreamType = ModuleListStream;
     module_list_directory.DataSize = 0; // this is calculated and written later
     module_list_directory.Rva = 0; // this is calculated and written later
@@ -128,7 +132,7 @@ BOOL write_directories(
     }
 
     DPRINT("Writing directory: Memory64ListStream");
-    MiniDumpDirectory memory64_list_directory;
+    MiniDumpDirectory memory64_list_directory = { 0 };
     memory64_list_directory.StreamType = Memory64ListStream;
     memory64_list_directory.DataSize = 0; // this is calculated and written later
     memory64_list_directory.Rva = 0; // this is calculated and written later
@@ -144,7 +148,7 @@ BOOL write_directories(
 BOOL write_system_info_stream(
     IN Pdump_context dc)
 {
-    MiniDumpSystemInfo system_info;
+    MiniDumpSystemInfo system_info = { 0 };
 
     DPRINT("Writing SystemInfoStream");
 
@@ -194,7 +198,7 @@ BOOL write_system_info_stream(
 #endif
 
     ULONG32 stream_size = SIZE_OF_SYSTEM_INFO_STREAM;
-    char system_info_bytes[SIZE_OF_SYSTEM_INFO_STREAM];
+    char system_info_bytes[SIZE_OF_SYSTEM_INFO_STREAM] = { 0 };
 
     DWORD offset = 0;
     memcpy(system_info_bytes + offset, &system_info.ProcessorArchitecture, 2); offset += 2;
@@ -285,7 +289,7 @@ Pmodule_info write_module_list_stream(
     {
         number_of_modules++;
         curr_module->name_rva = dc->rva;
-        ULONG32 full_name_length = wcsnlen((wchar_t*)&curr_module->dll_name, sizeof(curr_module->dll_name));
+        ULONG32 full_name_length = (ULONG32)wcsnlen((wchar_t*)&curr_module->dll_name, sizeof(curr_module->dll_name));
         full_name_length++; // account for the null byte at the end
         full_name_length *= 2;
         // write the length of the name
@@ -313,11 +317,11 @@ Pmodule_info write_module_list_stream(
         free_linked_list(module_list); module_list = NULL;
         return NULL;
     }
-    BYTE module_bytes[SIZE_OF_MINIDUMP_MODULE];
+    BYTE module_bytes[SIZE_OF_MINIDUMP_MODULE] = { 0 };
     curr_module = module_list;
     while (curr_module)
     {
-        MiniDumpModule module;
+        MiniDumpModule module = { 0 };
         module.BaseOfImage = (ULONG_PTR)curr_module->dll_base;
         module.SizeOfImage = curr_module->size_of_image;
         module.CheckSum = curr_module->CheckSum;
@@ -434,7 +438,7 @@ PMiniDumpMemoryDescriptor64 get_memory_ranges(
         base_address = mbi.BaseAddress;
         region_size = mbi.RegionSize;
 
-        if ((base_address + region_size) < base_address)
+        if (((ULONG_PTR)base_address + region_size) < (ULONG_PTR)base_address)
             break;
 
         // next memory range
@@ -538,10 +542,17 @@ PMiniDumpMemoryDescriptor64 write_memory64_list_stream(
         free_linked_list(memory_ranges); memory_ranges = NULL;
         return NULL;
     }
+    // make sure we don't overflow stream_size
+    if (16 + 16 * number_of_ranges > 0xffffffff)
+    {
+        DPRINT_ERR("Too many ranges!");
+        free_linked_list(memory_ranges); memory_ranges = NULL;
+        return NULL;
+    }
 
     // write the rva of the actual memory content
-    ULONG32 stream_size = 16 + 16 * number_of_ranges;
-    ULONG64 base_rva = stream_rva + stream_size;
+    ULONG32 stream_size = (ULONG32)(16 + 16 * number_of_ranges);
+    ULONG64 base_rva = (ULONG64)stream_rva + stream_size;
     if (!append(dc, &base_rva, 8))
     {
         DPRINT_ERR("Failed to write the Memory64ListStream");
@@ -605,7 +616,12 @@ PMiniDumpMemoryDescriptor64 write_memory64_list_stream(
                 status);
             //return NULL;
         }
-        if (!append(dc, buffer, curr_range->DataSize))
+        if (curr_range->DataSize > 0xffffffff)
+        {
+            DPRINT_ERR("The current range is larger that the 32-bit address space!");
+            curr_range->DataSize = 0xffffffff;
+        }
+        if (!append(dc, buffer, (ULONG32)curr_range->DataSize))
         {
             DPRINT_ERR("Failed to write the Memory64ListStream");
             free_linked_list(memory_ranges); memory_ranges = NULL;

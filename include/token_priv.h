@@ -14,14 +14,17 @@ typedef BOOL(WINAPI* LookupPrivilegeNameW_t) (LPCSTR lpSystemName, PLUID lpLuid,
 
 #define SeDebugPrivilege L"SeDebugPrivilege"
 
+BOOL enable_impersonate_priv(VOID);
+
 BOOL enable_debug_priv(VOID);
 
 BOOL check_token_privileges(
+    IN HANDLE hToken OPTIONAL,
     IN LPCWSTR ppwszRequiredPrivileges[],
-    IN DWORD dwNumRequiredPrivileges,
+    IN ULONG32 dwNumRequiredPrivileges,
     IN BOOL bEnablePrivilege);
 
 BOOL check_token_privilege(
-    IN HANDLE hToken,
+    IN HANDLE hToken OPTIONAL,
     IN LPCWSTR pwszPrivilege,
     IN BOOL bEnablePrivilege);

@@ -50,7 +50,7 @@ BOOL delete_known_dll_entry(VOID)
         0);
     if (!SetKernelObjectSecurity)
     {
-        DPRINT_ERR("Address of 'SetKernelObjectSecurity' not found");
+        api_not_found("SetKernelObjectSecurity");
         goto end;
     }
 
@@ -61,7 +61,7 @@ BOOL delete_known_dll_entry(VOID)
         0);
     if (!InitializeSecurityDescriptor)
     {
-        DPRINT_ERR("Address of 'InitializeSecurityDescriptor' not found");
+        api_not_found("InitializeSecurityDescriptor");
         goto end;
     }
     SetSecurityDescriptorDacl_t SetSecurityDescriptorDacl;
@@ -71,7 +71,7 @@ BOOL delete_known_dll_entry(VOID)
         0);
     if (!SetSecurityDescriptorDacl)
     {
-        DPRINT_ERR("Address of 'SetSecurityDescriptorDacl' not found");
+        api_not_found("SetSecurityDescriptorDacl");
         goto end;
     }
 
@@ -97,7 +97,7 @@ BOOL delete_known_dll_entry(VOID)
     DPRINT("Object to delete: %ls", pwszLinkPath);
 
     name.Buffer  = pwszLinkPath;
-    name.Length  = wcsnlen(name.Buffer, MAX_PATH);;
+    name.Length  = (USHORT)wcsnlen(name.Buffer, MAX_PATH);;
     name.Length *= 2;
     name.MaximumLength = name.Length + 2;
     InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE, NULL, NULL);

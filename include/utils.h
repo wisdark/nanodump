@@ -4,6 +4,8 @@
 #include "ntdefs.h"
 #include "output.h"
 
+#define UNUSED(x) (void)(x)
+
 #if defined(_MSC_VER)
  #define ProcessInstrumentationCallback 40
 #endif
@@ -18,12 +20,18 @@ typedef struct _linked_list
 
 #define RVA(type, base_addr, rva) (type)(ULONG_PTR)((ULONG_PTR) base_addr + rva)
 
+typedef DWORD(WINAPI* GetEnvironmentVariableW_t) (LPCWSTR lpName, LPWSTR lpBuffer, DWORD nSize);
+
+#define GetEnvironmentVariableW_SW2_HASH 0x2F9C600B
+
 #ifdef _WIN64
  #define CID_OFFSET 0x40
+ #define TEB_OFFSET 0x30
  #define PEB_OFFSET 0x60
  #define READ_MEMLOC __readgsqword
 #else
  #define CID_OFFSET 0x20
+ #define TEB_OFFSET 0x18
  #define PEB_OFFSET 0x30
  #define READ_MEMLOC __readfsdword
 #endif
@@ -94,6 +102,19 @@ typedef struct _PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION
     PVOID Callback;
 } PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION, *PPROCESS_INSTRUMENTATION_CALLBACK_INFORMATION;
 
+BOOL print_shtinkering_crash_location(VOID);
+
+BOOL get_env_var(
+    IN LPWSTR name,
+    OUT LPWSTR value,
+    IN DWORD size);
+
+DWORD get_tick_count(VOID);
+
+BOOL find_process_id_by_name(
+    IN LPCSTR process_name,
+    OUT PDWORD pPid);
+
 BOOL is_full_path(
     IN LPCSTR filename);
 
@@ -122,6 +143,9 @@ BOOL delete_file(
 BOOL file_exists(
     IN LPCSTR filepath);
 
+BOOL create_folder(
+    IN LPCSTR folderpath);
+
 BOOL wait_for_process(
     IN HANDLE hProcess);
 
@@ -133,6 +157,9 @@ BOOL is_lsass(
 
 DWORD get_pid(
     IN HANDLE hProcess);
+
+DWORD get_tid(
+    IN HANDLE hThread);
 
 BOOL kill_process(
     IN DWORD pid,

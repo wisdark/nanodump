@@ -4,11 +4,12 @@ PVOID get_peb_address(
     IN HANDLE hProcess)
 {
 #ifdef SSP
+    UNUSED(hProcess);
     // if nanodump is running as an SSP,
     // avoid calling NtQueryInformationProcess
     return (PVOID)READ_MEMLOC(PEB_OFFSET);
 #else
-    PROCESS_BASIC_INFORMATION basic_info;
+    PROCESS_BASIC_INFORMATION basic_info = { 0 };
     basic_info.PebBaseAddress = 0;
     PROCESSINFOCLASS ProcessInformationClass = 0;
     NTSTATUS status = NtQueryInformationProcess(
@@ -90,6 +91,7 @@ Pmodule_info add_new_module(
     IN HANDLE hProcess,
     IN struct LDR_DATA_TABLE_ENTRY* ldr_entry)
 {
+    DWORD name_size;
     Pmodule_info new_module = intAlloc(sizeof(module_info));
     if (!new_module)
     {
@@ -103,12 +105,15 @@ Pmodule_info add_new_module(
     new_module->TimeDateStamp = ldr_entry->TimeDateStamp;
     new_module->CheckSum = ldr_entry->CheckSum;
 
+    name_size = ldr_entry->FullDllName.Length > sizeof(new_module->dll_name) ?
+        sizeof(new_module->dll_name) : ldr_entry->FullDllName.Length;
+
     // read the full path of the DLL
     NTSTATUS status = NtReadVirtualMemory(
         hProcess,
         (PVOID)ldr_entry->FullDllName.Buffer,
         new_module->dll_name,
-        ldr_entry->FullDllName.Length,
+        name_size,
         NULL);
     if (!NT_SUCCESS(status))
     {

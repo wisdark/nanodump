@@ -38,6 +38,7 @@ __declspec(naked) void SyscallNotFound(void)
 __declspec(naked) void SyscallNotFound(void)
 {
     asm(
+        SET_SYNTAX
         "mov eax, 0xC0DEDEAD \n"
         "ret \n"
     );
@@ -1536,17 +1537,40 @@ __declspec(naked) NTSTATUS NtUnmapViewOfSection(
     }
 }
 
+__declspec(naked) NTSTATUS NtImpersonateThread(
+    IN HANDLE ThreadHandle,
+    IN HANDLE ThreadToImpersonate,
+    IN PSECURITY_QUALITY_OF_SERVICE SecurityQualityOfService)
+{
+    __asm {
+        push 0x0C26D619
+        call SW3_GetSyscallAddress
+        pop ebx
+        push eax
+        push ebx
+        call SW2_GetSyscallNumber
+        add esp, 4
+        pop ebx
+        mov edx, esp
+        sub edx, 4
+        call ebx
+        ret
+    }
+}
+
 #elif defined(__GNUC__)
 
 __declspec(naked) BOOL local_is_wow64(void)
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov rax, 0 \n"
         "ret \n"
     );
 #else
     asm(
+        SET_SYNTAX
         "mov eax, fs:[0xc0] \n"
         "test eax, eax \n"
         "jne wow64 \n"
@@ -1562,12 +1586,14 @@ __declspec(naked) BOOL local_is_wow64(void)
 __declspec(naked) PVOID getIP(void)
 {
 #ifdef _WIN64
-    __asm__(
+    asm(
+    SET_SYNTAX
     "mov rax, [rsp] \n"
     "ret \n"
     );
 #else
     __asm__(
+    SET_SYNTAX
     "mov eax, [esp] \n"
     "ret \n"
     );
@@ -1582,6 +1608,7 @@ __declspec(naked) NTSTATUS NtOpenProcess(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1606,6 +1633,7 @@ __declspec(naked) NTSTATUS NtOpenProcess(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xCD9B2A0F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1631,6 +1659,7 @@ __declspec(naked) NTSTATUS NtGetNextProcess(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1655,6 +1684,7 @@ __declspec(naked) NTSTATUS NtGetNextProcess(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xFFBF1A2F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1680,6 +1710,7 @@ __declspec(naked) NTSTATUS NtReadVirtualMemory(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1704,6 +1735,7 @@ __declspec(naked) NTSTATUS NtReadVirtualMemory(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x118B7567 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1725,6 +1757,7 @@ __declspec(naked) NTSTATUS NtClose(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1749,6 +1782,7 @@ __declspec(naked) NTSTATUS NtClose(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x2252D33F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1772,6 +1806,7 @@ __declspec(naked) NTSTATUS NtOpenProcessToken(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1796,6 +1831,7 @@ __declspec(naked) NTSTATUS NtOpenProcessToken(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x8FA915A2 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1821,6 +1857,7 @@ __declspec(naked) NTSTATUS NtQueryInformationProcess(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1845,6 +1882,7 @@ __declspec(naked) NTSTATUS NtQueryInformationProcess(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xBDBCBC20 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1871,6 +1909,7 @@ __declspec(naked) NTSTATUS NtQueryVirtualMemory(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1895,6 +1934,7 @@ __declspec(naked) NTSTATUS NtQueryVirtualMemory(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x0393E980 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1921,6 +1961,7 @@ __declspec(naked) NTSTATUS NtAdjustPrivilegesToken(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1945,6 +1986,7 @@ __declspec(naked) NTSTATUS NtAdjustPrivilegesToken(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x17AB1B32 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -1971,6 +2013,7 @@ __declspec(naked) NTSTATUS NtAllocateVirtualMemory(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -1995,6 +2038,7 @@ __declspec(naked) NTSTATUS NtAllocateVirtualMemory(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x0595031B \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2019,6 +2063,7 @@ __declspec(naked) NTSTATUS NtFreeVirtualMemory(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2043,6 +2088,7 @@ __declspec(naked) NTSTATUS NtFreeVirtualMemory(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x01932F05 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2074,6 +2120,7 @@ __declspec(naked) NTSTATUS NtCreateFile(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2098,6 +2145,7 @@ __declspec(naked) NTSTATUS NtCreateFile(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x96018EB6 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2127,6 +2175,7 @@ __declspec(naked) NTSTATUS NtWriteFile(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2151,6 +2200,7 @@ __declspec(naked) NTSTATUS NtWriteFile(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x24B22A1A \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2180,6 +2230,7 @@ __declspec(naked) NTSTATUS NtCreateProcessEx(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2204,6 +2255,7 @@ __declspec(naked) NTSTATUS NtCreateProcessEx(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x1198E2E3 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2228,6 +2280,7 @@ __declspec(naked) NTSTATUS NtQuerySystemInformation(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2252,6 +2305,7 @@ __declspec(naked) NTSTATUS NtQuerySystemInformation(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x4A5B2C8F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2279,6 +2333,7 @@ __declspec(naked) NTSTATUS NtDuplicateObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2303,6 +2358,7 @@ __declspec(naked) NTSTATUS NtDuplicateObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x9CBFA413 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2328,6 +2384,7 @@ __declspec(naked) NTSTATUS NtQueryObject_(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2352,6 +2409,7 @@ __declspec(naked) NTSTATUS NtQueryObject_(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x0E23F64F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2375,6 +2433,7 @@ __declspec(naked) NTSTATUS NtWaitForSingleObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2399,6 +2458,7 @@ __declspec(naked) NTSTATUS NtWaitForSingleObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x426376E3 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2420,6 +2480,7 @@ __declspec(naked) NTSTATUS NtDeleteFile(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2444,6 +2505,7 @@ __declspec(naked) NTSTATUS NtDeleteFile(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x64B26A1A \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2466,6 +2528,7 @@ __declspec(naked) NTSTATUS NtTerminateProcess(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2490,6 +2553,7 @@ __declspec(naked) NTSTATUS NtTerminateProcess(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x652E64A0 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2514,6 +2578,7 @@ __declspec(naked) NTSTATUS NtSetInformationProcess_(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2538,6 +2603,7 @@ __declspec(naked) NTSTATUS NtSetInformationProcess_(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x1D9F320C \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2563,6 +2629,7 @@ __declspec(naked) NTSTATUS NtQueryInformationToken(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2587,6 +2654,7 @@ __declspec(naked) NTSTATUS NtQueryInformationToken(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x27917136 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2613,6 +2681,7 @@ __declspec(naked) NTSTATUS NtDuplicateToken(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2637,6 +2706,7 @@ __declspec(naked) NTSTATUS NtDuplicateToken(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x099C8384 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2661,6 +2731,7 @@ __declspec(naked) NTSTATUS NtSetInformationThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2685,6 +2756,7 @@ __declspec(naked) NTSTATUS NtSetInformationThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x1ABE5F87 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2710,6 +2782,7 @@ __declspec(naked) NTSTATUS NtCreateDirectoryObjectEx(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2734,6 +2807,7 @@ __declspec(naked) NTSTATUS NtCreateDirectoryObjectEx(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xBCBD62EA \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2758,6 +2832,7 @@ __declspec(naked) NTSTATUS NtCreateSymbolicLinkObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2782,6 +2857,7 @@ __declspec(naked) NTSTATUS NtCreateSymbolicLinkObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x8AD1BA6D \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2805,6 +2881,7 @@ __declspec(naked) NTSTATUS NtOpenSymbolicLinkObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2829,6 +2906,7 @@ __declspec(naked) NTSTATUS NtOpenSymbolicLinkObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x8C97980F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2852,6 +2930,7 @@ __declspec(naked) NTSTATUS NtQuerySymbolicLinkObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2876,6 +2955,7 @@ __declspec(naked) NTSTATUS NtQuerySymbolicLinkObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xA63A8CA7 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2903,6 +2983,7 @@ __declspec(naked) NTSTATUS NtCreateSection(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2927,6 +3008,7 @@ __declspec(naked) NTSTATUS NtCreateSection(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xF06912F9 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -2951,6 +3033,7 @@ __declspec(naked) NTSTATUS NtOpenThreadToken(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -2975,6 +3058,7 @@ __declspec(naked) NTSTATUS NtOpenThreadToken(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x73A33918 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3005,6 +3089,7 @@ __declspec(naked) NTSTATUS NtCreateTransaction(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3029,6 +3114,7 @@ __declspec(naked) NTSTATUS NtCreateTransaction(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x7CAB5EFB \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3054,6 +3140,7 @@ __declspec(naked) NTSTATUS NtQueryInformationFile(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3078,6 +3165,7 @@ __declspec(naked) NTSTATUS NtQueryInformationFile(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x38985C1E \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3099,6 +3187,7 @@ __declspec(naked) NTSTATUS NtMakeTemporaryObject(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3123,6 +3212,7 @@ __declspec(naked) NTSTATUS NtMakeTemporaryObject(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x84DF4D82 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3150,6 +3240,7 @@ __declspec(naked) NTSTATUS NtCreateKey(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3174,6 +3265,7 @@ __declspec(naked) NTSTATUS NtCreateKey(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xA1B2860C \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3200,6 +3292,7 @@ __declspec(naked) NTSTATUS NtSetValueKey(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3224,6 +3317,7 @@ __declspec(naked) NTSTATUS NtSetValueKey(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x0A1F2D80 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3249,6 +3343,7 @@ __declspec(naked) NTSTATUS NtQueryWnfStateNameInformation(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3273,6 +3368,7 @@ __declspec(naked) NTSTATUS NtQueryWnfStateNameInformation(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x14823613 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3300,6 +3396,7 @@ __declspec(naked) NTSTATUS NtUpdateWnfStateData(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3324,6 +3421,7 @@ __declspec(naked) NTSTATUS NtUpdateWnfStateData(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xE63DF28A \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3347,6 +3445,7 @@ __declspec(naked) NTSTATUS NtOpenEvent(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3371,6 +3470,7 @@ __declspec(naked) NTSTATUS NtOpenEvent(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x32A83D3A \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3402,6 +3502,7 @@ __declspec(naked) NTSTATUS NtAlpcConnectPort(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3426,6 +3527,7 @@ __declspec(naked) NTSTATUS NtAlpcConnectPort(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x6AF3595C \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3454,6 +3556,7 @@ __declspec(naked) NTSTATUS NtAlpcSendWaitReceivePort(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3478,6 +3581,7 @@ __declspec(naked) NTSTATUS NtAlpcSendWaitReceivePort(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xE830236E \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3509,6 +3613,7 @@ __declspec(naked) NTSTATUS NtCreateThreadEx(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3533,6 +3638,7 @@ __declspec(naked) NTSTATUS NtCreateThreadEx(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x113F55E3 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3554,6 +3660,7 @@ __declspec(naked) NTSTATUS NtDeleteKey(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3578,6 +3685,7 @@ __declspec(naked) NTSTATUS NtDeleteKey(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x6BDA0E04 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3601,6 +3709,7 @@ __declspec(naked) NTSTATUS NtPrivilegeCheck(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3625,6 +3734,7 @@ __declspec(naked) NTSTATUS NtPrivilegeCheck(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x12B1DE10 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3650,6 +3760,7 @@ __declspec(naked) NTSTATUS NtCreateEvent(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3674,6 +3785,7 @@ __declspec(naked) NTSTATUS NtCreateEvent(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x10893520 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3696,6 +3808,7 @@ __declspec(naked) NTSTATUS NtTerminateThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3720,6 +3833,7 @@ __declspec(naked) NTSTATUS NtTerminateThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x381B3AB5 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3750,6 +3864,7 @@ __declspec(naked) NTSTATUS _NtFsControlFile(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3774,6 +3889,7 @@ __declspec(naked) NTSTATUS _NtFsControlFile(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x20C6D09C \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3796,6 +3912,7 @@ __declspec(naked) NTSTATUS NtGetContextThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3820,6 +3937,7 @@ __declspec(naked) NTSTATUS NtGetContextThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xBA9EF43C \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3842,6 +3960,7 @@ __declspec(naked) NTSTATUS NtSetContextThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3866,6 +3985,7 @@ __declspec(naked) NTSTATUS NtSetContextThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xCB668D44 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3888,6 +4008,7 @@ __declspec(naked) NTSTATUS NtResumeThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3912,6 +4033,7 @@ __declspec(naked) NTSTATUS NtResumeThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x1339598F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3934,6 +4056,7 @@ __declspec(naked) NTSTATUS NtDelayExecution(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -3958,6 +4081,7 @@ __declspec(naked) NTSTATUS NtDelayExecution(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xB6EB75BA \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -3984,6 +4108,7 @@ __declspec(naked) NTSTATUS NtGetNextThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -4008,6 +4133,7 @@ __declspec(naked) NTSTATUS NtGetNextThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x1BB0D9EF \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -4033,6 +4159,7 @@ __declspec(naked) NTSTATUS _NtQueryInformationThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -4057,6 +4184,7 @@ __declspec(naked) NTSTATUS _NtQueryInformationThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x0ACD84E7 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -4081,6 +4209,7 @@ __declspec(naked) NTSTATUS NtOpenThread(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -4105,6 +4234,7 @@ __declspec(naked) NTSTATUS NtOpenThread(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x36960437 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -4135,6 +4265,7 @@ __declspec(naked) NTSTATUS NtMapViewOfSection(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -4159,6 +4290,7 @@ __declspec(naked) NTSTATUS NtMapViewOfSection(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0x7A2D5C79 \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -4181,6 +4313,7 @@ __declspec(naked) NTSTATUS NtUnmapViewOfSection(
 {
 #if defined(_WIN64)
     asm(
+        SET_SYNTAX
         "mov [rsp +8], rcx \n"
         "mov [rsp+16], rdx \n"
         "mov [rsp+24], r8 \n"
@@ -4205,6 +4338,7 @@ __declspec(naked) NTSTATUS NtUnmapViewOfSection(
     );
 #else
     asm(
+        SET_SYNTAX
         "push 0xCA1ACC8F \n"
         "call SW3_GetSyscallAddress \n"
         "pop ebx \n"
@@ -4220,5 +4354,55 @@ __declspec(naked) NTSTATUS NtUnmapViewOfSection(
     );
 #endif
 }
+
+__declspec(naked) NTSTATUS NtImpersonateThread(
+    IN HANDLE ThreadHandle,
+    IN HANDLE ThreadToImpersonate,
+    IN PSECURITY_QUALITY_OF_SERVICE SecurityQualityOfService)
+{
+#if defined(_WIN64)
+    asm(
+        SET_SYNTAX
+        "mov [rsp +8], rcx \n"
+        "mov [rsp+16], rdx \n"
+        "mov [rsp+24], r8 \n"
+        "mov [rsp+32], r9 \n"
+        "mov rcx, 0x0C26D619 \n"
+        "push rcx \n"
+        "sub rsp, 0x28 \n"
+        "call SW3_GetSyscallAddress \n"
+        "add rsp, 0x28 \n"
+        "pop rcx \n"
+        "push rax \n"
+        "sub rsp, 0x28 \n"
+        "call SW2_GetSyscallNumber \n"
+        "add rsp, 0x28 \n"
+        "pop r11 \n"
+        "mov rcx, [rsp+8] \n"
+        "mov rdx, [rsp+16] \n"
+        "mov r8, [rsp+24] \n"
+        "mov r9, [rsp+32] \n"
+        "mov r10, rcx \n"
+        "jmp r11 \n"
+    );
+#else
+    asm(
+        SET_SYNTAX
+        "push 0x0C26D619 \n"
+        "call SW3_GetSyscallAddress \n"
+        "pop ebx \n"
+        "push eax \n"
+        "push ebx \n"
+        "call SW2_GetSyscallNumber \n"
+        "add esp, 4 \n"
+        "pop ebx \n"
+        "mov edx, esp \n"
+        "sub edx, 4 \n"
+        "call ebx \n"
+        "ret \n"
+    );
+#endif
+}
+
 
 #endif

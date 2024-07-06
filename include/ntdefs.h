@@ -8,6 +8,9 @@
 #define KERNELBASE_DLL L"KernelBase.dll"
 #define KERNEL32_DLL L"Kernel32.dll"
 #define SHELL32_DLL L"Shell32.dll"
+#define OLEAUT32_DLL L"OleAut32.dll"
+#define RPCRT4_DLL L"Rpcrt4.dll"
+#define OLE32_DLL L"Ole32.dll"
 
 #define NtCurrentProcess() ( (HANDLE)(LONG_PTR) -1 )
 #define NtCurrentThread() ( (HANDLE)(LONG_PTR) -2 )
@@ -56,12 +59,12 @@ struct _RTL_BALANCED_NODE
 
 struct LDR_DATA_TABLE_ENTRY
 {
-    //struct _LIST_ENTRY InLoadOrderLinks;                                    //0x0
+    struct _LIST_ENTRY InLoadOrderLinks;                                    //0x0
     struct _LIST_ENTRY InMemoryOrderLinks;                                  //0x10
     struct _LIST_ENTRY InInitializationOrderLinks;                          //0x20
     PVOID DllBase;                                                          //0x30
     PVOID EntryPoint;                                                       //0x38
-    ULONG32 SizeOfImage;                                                      //0x40
+    ULONG32 SizeOfImage;                                                    //0x40
     struct _UNICODE_STRING FullDllName;                                     //0x48
     struct _UNICODE_STRING BaseDllName;                                     //0x58
     UCHAR FlagGroup[4];                                                     //0x68

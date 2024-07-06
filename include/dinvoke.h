@@ -13,7 +13,7 @@ typedef NTSTATUS(WINAPI* LdrLoadDll_t)(PWCHAR, ULONG, PUNICODE_STRING, PHANDLE);
 
 typedef struct _ND_LDR_DATA_TABLE_ENTRY
 {
-    //struct _LIST_ENTRY InLoadOrderLinks;
+    struct _LIST_ENTRY InLoadOrderLinks;
     struct _LIST_ENTRY InMemoryOrderLinks;
     struct _LIST_ENTRY InInitializationOrderLinks;
     PVOID DllBase;
@@ -41,6 +41,9 @@ typedef struct _ND_PEB
     PVOID Reserved3[2];
     PND_PEB_LDR_DATA Ldr;
 } ND_PEB, *PND_PEB;
+
+PVOID find_dll_by_pointer(
+    IN PVOID address);
 
 BOOL is_dll(
     IN HMODULE hLibrary);

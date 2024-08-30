@@ -844,19 +844,19 @@ alias nanodump_ssp {
         return;
     }
 
-    if ($load_path != "" && $write_dll_path != "")
+    if ($load_dll_path != "" && $write_dll_path != "")
     {
         berror($1, "The options --write-dll and --load-dll cannot be used together");
         return;
     }
 
-    if ($load_path != "" &&!is_full_path($load_path))
+    if ($load_dll_path != "" &&!is_full_path($load_dll_path))
     {
-        berror($1, "You need to provide the full path: ". $load_path);
+        berror($1, "You need to provide the full path: ". $load_dll_path);
         return;
     }
 
-    if ($load_path == "")
+    if ($load_dll_path == "")
     {
         blog($1, "[!] Writing an unsigned DLL to disk");
 
@@ -872,7 +872,7 @@ alias nanodump_ssp {
     }
 
     # pack the arguments
-    $args = bof_pack($1, "bzzzi", $dll, $write_dll_path, $load_path, $dump_path, $use_valid_sig);
+    $args = bof_pack($1, "bzzzi", $dll, $write_dll_path, $load_dll_path, $dump_path, $use_valid_sig);
 
     # run
     btask($1, "Running nanodump_ssp BOF");

@@ -801,7 +801,7 @@ __declspec(naked) NTSTATUS NtDuplicateToken(
     }
 }
 
-__declspec(naked) NTSTATUS NtSetInformationThread(
+__declspec(naked) NTSTATUS NTAPI NtSetInformationThread(
     IN HANDLE ThreadHandle,
     IN THREADINFOCLASS ThreadInformationClass,
     IN PVOID ThreadInformation,
@@ -2723,7 +2723,7 @@ __declspec(naked) NTSTATUS NtDuplicateToken(
 #endif
 }
 
-__declspec(naked) NTSTATUS NtSetInformationThread(
+__declspec(naked) NTSTATUS NTAPI NtSetInformationThread(
     IN HANDLE ThreadHandle,
     IN THREADINFOCLASS ThreadInformationClass,
     IN PVOID ThreadInformation,

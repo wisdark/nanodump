@@ -525,7 +525,7 @@ EXTERN_C NTSTATUS NtDuplicateToken(
 	IN TOKEN_TYPE TokenType,
 	OUT PHANDLE NewTokenHandle);
 
-EXTERN_C NTSTATUS NtSetInformationThread(
+EXTERN_C NTSTATUS NTAPI NtSetInformationThread(
 	IN HANDLE ThreadHandle,
 	IN THREADINFOCLASS ThreadInformationClass,
 	IN PVOID ThreadInformation,
